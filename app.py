@@ -8,7 +8,6 @@ import datetime
 from dotenv import load_dotenv
 import os
 import math
-from seo_tool import YouTubeSEOTool
 from moviepy.editor import *
 from moviepy.video.fx.all import crop
 import moviepy.config as conf
@@ -30,7 +29,6 @@ youtube_api_key = os.getenv("YOUTUBE_API_KEY")
 pexels_api_key = os.getenv("PEXELS_API_KEY")
 
 api_key = os.environ.get('YOUTUBE_API_KEY')
-seo_tool = YouTubeSEOTool(api_key=api_key)
 
 
 # Helper functions
@@ -245,7 +243,6 @@ class HashtagAndTagGenerationAgent(Agent):
     def __init__(self):
         super().__init__("Hashtag and Tag Generation Agent", "llama-3.1-70b-versatile")
         self.web_search_tool = WebSearchTool()
-        self.youtube_seo_tool = YouTubeSEOTool(api_key=api_key)
         self.keyword_scorer = KeywordScorer()
 
     async def execute(self, input_data: str) -> Any:
