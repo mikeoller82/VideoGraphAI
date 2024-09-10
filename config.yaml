@@ -1,0 +1,25 @@
+# config.yaml
+api_keys:
+  groq: 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
+  serpapi: 48e0e3ce93ba3231548b1247fa87c7fd8c9dd70a
+  youtube: AIzaSyC1gVEKF4I-msjXNTi0pzq_UcmQMIwIkQI
+  pexels: FmxSgR2oWKSUcgzE95W838BcfBoLxslf6BwAqpMEsBdAEWTMcSw7YPyY
+
+database:
+  path: youtube_optimization.db
+
+cache:
+  expiration: 3600  # Cache expiration in seconds
+
+agents:
+  - RecentEventsResearchAgent
+  - TitleGenerationAgent
+  - TitleSelectionAgent
+  - DescriptionGenerationAgent
+  - HashtagAndTagGenerationAgent
+  - VideoScriptGenerationAgent
+  - StoryboardGenerationAgent
+
+tools:
+  - WebSearchTool
+  - YouTubeSEOTool

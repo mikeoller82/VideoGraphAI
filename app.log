@@ -1,0 +1,6 @@
+2024-09-10 14:22:40.640 | INFO     | plugins.state:youtube_optimization_workflow:74 - Executing Recent Events Research Agent
+2024-09-10 14:22:40.641 | ERROR    | plugins.state:youtube_optimization_workflow:100 - Error in Recent Events Research Agent: RecentEventsResearchAgent.execute() missing 1 required positional argument: 'input_data'
+2024-09-10 14:33:31.768 | INFO     | plugins.state:youtube_optimization_workflow:74 - Executing Recent Events Research Agent
+2024-09-10 14:33:31.768 | ERROR    | plugins.state:youtube_optimization_workflow:100 - Error in Recent Events Research Agent: Input data is required
+2024-09-10 14:38:41.782 | INFO     | plugins.state:youtube_optimization_workflow:74 - Executing Recent Events Research Agent
+2024-09-10 14:38:41.783 | ERROR    | plugins.state:youtube_optimization_workflow:100 - Error in Recent Events Research Agent: Input data is required
