@@ -698,8 +698,9 @@ def compile_youtube_short(scenes):
     output_path = os.path.join(os.getcwd(), "youtube_short.mp4")
     
     # Concatenate videos, add subtitles and voiceover
+
     ffmpeg_command = [
-        'ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_file,
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_file,
         '-i', audio_file,
         '-vf', f"subtitles={subtitle_file}",
         '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', output_path
