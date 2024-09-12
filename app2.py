@@ -659,8 +659,8 @@ def compile_youtube_short(scenes):
                     f.write(response.content)
                 
                 # Trim and resize for vertical Short
-                output_path = os.path.join(os.getcwd(), "youtube_short.mp4")
-                duration = 60 / len(scenes)  # Distribute time equally among scenes
+                output_path = os.path.join(os.getcwd(), f"scene_{i}.mp4")  # Use unique names for each scene
+                duration = scene.get("video_details", {}).get("duration", 60 / len(scenes))  # Use scene duration if available
                 subprocess.call(['ffmpeg', '-i', video_path, '-t', str(duration), '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-c:v', 'libx264', '-preset', 'ultrafast', output_path])
                 scene_files.append(output_path)
             else:
@@ -673,18 +673,18 @@ def compile_youtube_short(scenes):
                         f.write(response.content)
                     output_path = os.path.join(temp_dir, f"processed_scene_{i}.mp4")
                     duration = 60 / len(scenes)
-                    subprocess.call(['ffmpeg', '-loop', '1', '-i', image_path, '-t', str(duration), '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-c:v', 'libx264', '-preset', 'ultrafast', output_path])
+                    subprocess.call(['ffmpeg', '-y', '-loop', '1', '-i', image_path, '-t', str(duration), '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-c:v', 'libx264', '-preset', 'ultrafast', output_path])
                 else:
                     output_path = os.path.join(temp_dir, f"color_scene_{i}.mp4")
                     duration = 60 / len(scenes)
-                    subprocess.call(['ffmpeg', '-f', 'lavfi', '-i', f'color=c=blue:s=1080x1920:d={duration}', '-c:v', 'libx264', '-preset', 'ultrafast', output_path])
+                    subprocess.call(['ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=blue:s=1080x1920:d={duration}', '-c:v', 'libx264', '-preset', 'ultrafast', output_path])
                 scene_files.append(output_path)
         
         except Exception as e:
             logger.error(f"Error processing scene {i}: {str(e)}")
             # Create error scene
             error_path = os.path.join(temp_dir, f"error_scene_{i}.mp4")
-            subprocess.call(['ffmpeg', '-f', 'lavfi', '-i', f'color=c=red:s=1080x1920:d={60/len(scenes)}', '-vf', 
+            subprocess.call(['ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=red:s=1080x1920:d={60/len(scenes)}', '-vf', 
                             "drawtext=fontfile=/path/to/font.ttf: fontsize=80: fontcolor=white: box=1: boxcolor=black@0.5: boxborderw=5: x=(w-tw)/2: y=(h-th)/2: text='Error in scene'",
                             '-c:v', 'libx264', '-preset', 'ultrafast', error_path])
             scene_files.append(error_path)
@@ -715,24 +715,25 @@ def compile_youtube_short(scenes):
 
     # Clean up
     for file in scene_files:
+        if file != output_path:
+            try:
+                os.remove(file)
+            except Exception as e:
+                logger.warning(f"Error removing file {file}: {str(e)}")
+        
         try:
-            os.remove(file)
+            os.remove(concat_file)
+            os.remove(subtitle_file)
+            os.remove(audio_file)
         except Exception as e:
-            logger.warning(f"Error removing file {file}: {str(e)}")
-    
-    try:
-        os.remove(concat_file)
-        os.remove(subtitle_file)
-        os.remove(audio_file)
-    except Exception as e:
-        logger.warning(f"Error removing temporary files: {str(e)}")
+            logger.warning(f"Error removing temporary files: {str(e)}")
 
-    try:
-        shutil.rmtree(temp_dir)
-    except Exception as e:
-        logger.warning(f"Error removing temporary directory {temp_dir}: {str(e)}")
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            logger.warning(f"Error removing temporary directory {temp_dir}: {str(e)}")
 
-    return output_path
+        return output_path
 
 def generate_subtitles(scenes, output_file):
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -762,11 +763,10 @@ def generate_voiceover(scenes, output_file):
         raise
 
 def format_time(seconds):
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    seconds = int(seconds % 60)
-    milliseconds = int((seconds % 1) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    return f"{int(hours):01d}:{int(minutes):02d}:{seconds:05.2f}"
 
 async def main():
     try:
