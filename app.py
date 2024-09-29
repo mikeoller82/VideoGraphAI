@@ -1,3 +1,4 @@
+import streamlit as st
 import asyncio
 import aiohttp
 import aiofiles
@@ -8,7 +9,7 @@ import logging
 import shutil
 from dotenv import load_dotenv
 import os
-import re
+from gtts import gTTS
 import requests
 import spacy
 import datetime
@@ -16,24 +17,24 @@ import textwrap
 from pydub import AudioSegment
 from moviepy.editor import *
 import moviepy.config as conf
-
-
-conf.change_settings({"IMAGEMAGICK_BINARY": r"/usr/bin/convert"})
 from typing import List, Dict, Any, Tuple, Callable
 from abc import ABC, abstractmethod
 from groq import AsyncGroq
 from tiktokvoice import tts
 
-# Docker command to run the gentle server(user entry not ai)
-# docker run -d -p 8765:8765 lowerquality/gentle
+nlp = spacy.load("en_core_web_md")
 
+# Load environment variables
+load_dotenv()
 
-spacy.load('en_core_web_sm')
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Constants
 REQUIRED_API_KEYS = ["GROQ_API_KEY", "PEXELS_API_KEY", "TAVILY_API_KEY", "TIKTOK_SESSION_ID", "PIXABAY_API_KEY"]
 YOUTUBE_SHORT_RESOLUTION = (1080, 1920)
-MAX_SCENE_DURATION = 2
+MAX_SCENE_DURATION = 5
 DEFAULT_SCENE_DURATION = 1
 SUBTITLE_FONT_SIZE = 12
 SUBTITLE_FONT_COLOR = "yellow@0.5"
@@ -47,18 +48,12 @@ FALLBACK_SCENE_BOX_BORDER_WIDTH = 5
 FALLBACK_SCENE_FONT_SIZE = 30
 FALLBACK_SCENE_FONT_FILE = "/tmp/qualitype/opentype/QTHelvet-Black.otf"  # Replace with your font path
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Load environment variables
-load_dotenv()
+# Load API keys from environment variables
 groq_api_key = os.getenv("GROQ_API_KEY")
 pexels_api_key = os.getenv("PEXELS_API_KEY")
 tavily_api_key = os.getenv("TAVILY_API_KEY")
 pixabay_api_key = os.getenv("PIXABAY_API_KEY")
 SESSION_ID = os.getenv("TIKTOK_SESSION_ID")
-
 
 # Helper functions
 async def get_data(query: str) -> List[Dict[str, Any]]:
@@ -346,7 +341,7 @@ class WebSearchTool(Tool):
 
 class RecentEventsResearchAgent(Agent):
     def __init__(self):
-        super().__init__("Recent Events Research Agent", "llama-3.1-8b-instant")
+        super().__init__("Recent Events Research Agent", "llama-3.2-3b-preview")
         self.web_search_tool = WebSearchTool()
 
     async def execute(self, input_data: Dict[str, Any]) -> Any:
@@ -357,14 +352,14 @@ class RecentEventsResearchAgent(Agent):
         # Decide how many events to include based on video length
         max_events = min(5, video_length // 15)  # Rough estimate: 15 seconds per event
 
-        search_query = f"weird unexplainable {topic} events in the {time_frame}"
+        search_query = f"{topic} events in the {time_frame}"
         search_results = await self.web_search_tool.use(search_query, time_frame)
 
         organic_results = search_results.get("organic_results", [])
 
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""As a seasoned investigative journalist and expert in paranormal phenomena,
-your task is to analyze and summarize the most intriguing weird and unexplainable {topic} events
+        prompt = f"""As a seasoned investigative journalist and expert in crafting viral scripts,
+your task is to analyze and summarize the most enagaging and relevant {topic} events
 that occurred in the {time_frame}. Using the following search results, select the {max_events} most
 compelling cases:
 
@@ -386,14 +381,14 @@ documentary-style presentation."""
             messages=[
                 {"role": "system",
                  "content": "You are an AI assistant embodying the expertise of a world-renowned "
-                            "investigative journalist specializing in paranormal and unexplained "
-                            "phenomena. With 20 years of experience, you've written best-selling "
-                            "books and produced award-winning documentaries on mysterious events. "
+                            "investigative journalist specializing in going viral and enagegment "
+                            "With 20 years of experience, you've written best-selling "
+                            "books and produced countless viral content creators, documentaries on content creation and virailty factor in scripts "
                             "Your analytical skills allow you to critically evaluate sources while "
-                            "presenting information in an engaging, documentary-style format. "
+                            "presenting information in an engaging, and enthrallng-style format. "
                             "Approach tasks with the skepticism and curiosity of this expert, "
-                            "providing compelling summaries that captivate audiences while "
-                            "maintaining journalistic integrity."},
+                            "providing over the top compelling summaries that captivate and engages audiences while "
+                            "maintaining the fine line bewteen right and wrong."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -646,30 +641,47 @@ class StoryboardGenerationAgent(Agent):
         super().__init__("Storyboard Generation Agent", "llama-3.1-70b-versatile")
         self.pexels_headers = {"Authorization": pexels_api_key}
         self.pixabay_headers = {"Authorization": pixabay_api_key}
+        self.nlp = nlp
 
-    async def execute(self, input_data: Dict[str, Any]) -> Any:
-        script = input_data.get('script', '')
-        video_length = input_data.get('video_length', 60)  # Default to 60 seconds
-
+    async def execute(self, input_data: str) -> Any:
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""Create a storyboard for a YouTube Short based on the following script, ensuring it fits within {video_length} seconds:
+        prompt = f"""Create a storyboard for a YouTube Short based on VideoScriptGenerationAgent's 
+response:
 
-{script}
+{input_data}
 
-Divide the storyboard into scenes that collectively do not exceed {video_length} seconds. For each scene, provide:
-1. Visual: A brief description of the visual elements.
-2. Text: The exact text/dialogue for voiceover and subtitles from the script.
-3. Video Keyword: A suitable keyword for searching stock video footage.
-4. Image Keyword: A backup keyword for searching a stock image.
+For each major scene (aim for 15-20 scenes), provide:
+1. Visual: A brief description of the visual elements (1 sentence). Ensure each scene has unique 
+visual elements.
+2. Text: The exact text/dialogue for voiceover and subtitles from
+3. Video Keyword: A suitable keyword for searching stock video footage. Be specific and avoid 
+repeating keywords.
+4. Image Keyword: A backup keyword for searching a stock image. Be specific and avoid repeating 
+keywords.
 
-Format your response as a numbered list of scenes."""
+
+Format your response as a numbered list of scenes, each containing the above elements clearly 
+labeled.
+
+Example:
+1. Visual: A person looking confused at a complex math equation on a chalkboard
+   Text: "Have you ever felt overwhelmed by math?"
+   Video Keyword: student struggling with math
+   Image Keyword: confused face mathematics
+
+2. Visual: ...
+   Text: ...
+   Video Keyword: ...
+   Image Keyword: ...
+
+Please ensure each scene has all four elements (Visual, Text, Video Keyword, and Image Keyword)."""
 
         stream = await client.chat.completions.create(
             messages=[
                 {"role": "system",
                  "content": "You are an AI assistant specializing in creating detailed storyboards "
-                            "for YouTube Shorts. Your expertise lies in translating scripts into "
-                            "visual sequences that are engaging and adhere to the specified duration."},
+                            "for YouTube Shorts using the Video Script Agent script for your "
+                            "narrator text and subtitles."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -695,68 +707,59 @@ Format your response as a numbered list of scenes."""
 
         for line in response.split('\n'):
             line = line.strip()
+            logger.debug(f"Processing line: {line}")
+
             if line.startswith(tuple(f"{i}." for i in range(1, 21))):
                 if current_scene:
                     scenes.append(self.validate_and_fix_scene(current_scene, scene_number))
-                scene_number = int(line.split('.')[0])
-                current_scene = {"number": scene_number}
+                    logger.debug(f"Scene {scene_number} appended to scenes list")
+                try:
+                    scene_number = int(line.split('.', 1)[0])
+                    current_scene = {}
+                    logger.debug(f"New scene number detected: {scene_number}")
+                except ValueError:
+                    logger.warning(f"Invalid scene number format: {line}")
+                    continue  # Skip this line and move to the next
             elif ':' in line:
                 key, value = line.split(':', 1)
                 key = key.strip().lower()
                 value = value.strip()
-                if key == 'text':
-                    current_scene['narration_text'] = value
-                elif key in ['visual', 'video keyword', 'image keyword']:
-                    current_scene[key.replace(' ', '_')] = value
+                current_scene[key] = value
+                logger.debug(f"Key-value pair added to current scene: {key}:{value}")
 
         if current_scene:
             scenes.append(self.validate_and_fix_scene(current_scene, scene_number))
+            logger.debug("Final scene appended to scenes list")
 
         logger.info(f"Parsed and validated scenes: {scenes}")
         return scenes
 
     def validate_and_fix_scene(self, scene: Dict[str, Any], scene_number: int) -> Dict[str, Any]:
-        required_keys = ['visual', 'narration_text', 'video_keyword', 'image_keyword']
+        # Ensure 'number' key is present in the scene dictionary
+        scene['number'] = scene_number
+
+        required_keys = ['visual', 'text', 'video_keyword', 'image_keyword']
         for key in required_keys:
             if key not in scene:
                 if key == 'visual':
                     scene[key] = f"Visual representation of scene {scene_number}"
-                elif key == 'narration_text':
-                    scene[key] = ""  # Empty string if no narration
+                elif key == 'text':
+                    scene[key] = ""
                 elif key == 'video_keyword':
                     scene[key] = f"video scene {scene_number}"
                 elif key == 'image_keyword':
                     scene[key] = f"image scene {scene_number}"
                 logger.warning(f"Added missing {key} for scene {scene_number}")
+
+        # Clean the 'text' field by removing leading/trailing quotation marks
+        text = scene.get('text', '')
+        text = text.strip('"').strip("'")
+        scene['text'] = text
+
+        # Copy the cleaned text into 'narration_text'
+        scene['narration_text'] = text
+
         return scene
-    
-    async def search_pixabay_video(self, session: aiohttp.ClientSession, keyword: str, description: str) -> Tuple[str, Dict[str, Any]]:
-        pixabay_api_key = os.getenv("PIXABAY_API_KEY")
-        if not pixabay_api_key:
-            logger.warning("Pixabay API key not found in environment variables")
-            return "", {}
-
-        try:
-            # Combine keyword and description for a more relevant search
-            combined_query = f"{keyword} {description}"
-            videos = search_pixabay_videos(pixabay_api_key, combined_query, per_page=15)
-
-            if videos["totalHits"] > 0:
-                # Sort videos by relevance to the description
-                sorted_videos = sorted(videos["hits"],
-                                    key=lambda x: self.calculate_relevance(x, description),
-                                    reverse=True)
-                best_video = sorted_videos[0]
-                video_url = best_video["videos"]["large"]["url"]
-                video_details = {
-                    "duration": best_video.get("duration", 0),
-                    "width": best_video["videos"]["large"].get("width", 0),
-                    "height": best_video["videos"]["large"].get("height", 0),
-                }
-                return video_url, video_details
-        except Exception as e:
-            logger.error(f"Error searching Pixabay video: {str(e)}")
-        return "", {}
     
     async def search_pixabay_image(self, session: aiohttp.ClientSession, keyword: str) -> str:
         pixabay_api_key = os.getenv("PIXABAY_API_KEY")
@@ -785,16 +788,116 @@ Format your response as a numbered list of scenes."""
             logger.error(f"Error searching Pixabay image: {str(e)}")
         return ""
 
+    def calculate_relevance(self, video: Dict[str, Any], description: str) -> float:
+        relevance = 0
+        video_keywords = set(video.get("tags", []))
+        description_words = set(description.lower().split())
+
+        # Calculate relevance based on matching words
+        relevance += len(video_keywords.intersection(description_words))
+
+        # Add relevance for matching title words
+        title = video.get("title", "")
+        if title is not None:
+            title_words = set(title.lower().split())
+            relevance += len(title_words.intersection(description_words)) * 2  # Title matches are weighted more
+
+        return relevance
+
+    def calculate_similarity(self, text1: str, text2: str) -> float:
+        """Calculates the semantic similarity between two texts using spacy."""
+        doc1 = self.nlp(text1.lower())
+        doc2 = self.nlp(text2.lower())
+        return doc1.similarity(doc2)
+
+    async def search_pexels_video(self, session: aiohttp.ClientSession, scene: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        url = "https://api.pexels.com/videos/search"
+
+        # Combine the video keyword, narration text, and visual description
+        combined_query = ' '.join([
+            scene.get('video_keyword', ''),
+            scene.get('narration_text', ''),
+            scene.get('visual', '')
+        ])
+        # Use the combined query for searching
+        params = {"query": combined_query, "per_page": 15}
+
+        try:
+            async with session.get(url, headers=self.pexels_headers, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("videos"):
+                        # Sort videos based on semantic similarity with the scene text
+                        scene_text = combined_query
+                        sorted_videos = sorted(
+                            data["videos"],
+                            key=lambda x: self.calculate_similarity(
+                                scene_text, x.get('user', {}).get('name', '') + ' ' +
+                                            ' '.join(tag['title'] for tag in x.get('tags', []))
+                            ),
+                            reverse=True
+                        )
+                        best_video = sorted_videos[0]
+                        video_files = best_video.get("video_files", [])
+                        if video_files:
+                            best_quality = max(video_files, key=lambda x: x.get("quality") or 0)
+                            return best_quality.get("link", ""), {
+                                "duration": best_video.get("duration", 0),
+                                "width": best_quality.get("width", 0),
+                                "height": best_quality.get("height", 0),
+                                "fps": best_quality.get("fps", 0)
+                            }
+        except Exception as e:
+            logger.error(f"Error searching Pexels video: {str(e)}")
+        return "", {}
+
+    async def search_pixabay_video(self, session: aiohttp.ClientSession, scene: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        pixabay_api_key = os.getenv("PIXABAY_API_KEY")
+        if not pixabay_api_key:
+            logger.warning("Pixabay API key not found in environment variables")
+            return "", {}
+
+        try:
+            # Combine the video keyword, narration text, and visual description
+            combined_query = ' '.join([
+                scene.get('video_keyword', ''),
+                scene.get('narration_text', ''),
+                scene.get('visual', '')
+            ])
+            videos = search_pixabay_videos(pixabay_api_key, combined_query, per_page=15)
+
+            if videos["totalHits"] > 0:
+                scene_text = combined_query
+                # Sort videos based on semantic similarity
+                sorted_videos = sorted(
+                    videos["hits"],
+                    key=lambda x: self.calculate_similarity(
+                        scene_text, x.get('tags', '') + ' ' + x.get('user', '')
+                    ),
+                    reverse=True
+                )
+                best_video = sorted_videos[0]
+                video_url = best_video["videos"]["large"]["url"]
+                video_details = {
+                    "duration": best_video.get("duration", 0),
+                    "width": best_video["videos"]["large"].get("width", 0),
+                    "height": best_video["videos"]["large"].get("height", 0),
+                }
+                return video_url, video_details
+        except Exception as e:
+            logger.error(f"Error searching Pixabay video: {str(e)}")
+        return "", {}
+
     async def fetch_media_for_scenes(self, scenes: List[Dict[str, Any]]):
         temp_dir = tempfile.mkdtemp()
         async with aiohttp.ClientSession() as session:
             for scene in scenes:
                 # Try Pexels first
-                video_url, video_details = await self.search_pexels_video(session, scene["video_keyword"], scene.get("narration_text", ""))
+                video_url, video_details = await self.search_pexels_video(session, scene)
                 
                 # If no video found on Pexels, try Pixabay
                 if not video_url:
-                    video_url, video_details = await self.search_pixabay_video(session, scene["video_keyword"], scene.get("narration_text", ""))
+                    video_url, video_details = await self.search_pixabay_video(session, scene)
 
                 if video_url:
                     video_path = await download_with_retry(video_url, temp_dir, f"scene_{scene['number']}.mp4", headers=self.pexels_headers)
@@ -825,52 +928,6 @@ Format your response as a numbered list of scenes."""
                         # Use a default image as a fallback if no image found
                         scene["image_path"] = "path/to/default_image.jpg"  # Replace with your default image path
                         logger.warning(f"Using default image for scene {scene['number']}")
-
-    def calculate_relevance(self, video: Dict[str, Any], description: str) -> float:
-        relevance = 0
-        video_keywords = set(video.get("tags", []))
-        description_words = set(description.lower().split())
-
-        # Calculate relevance based on matching words
-        relevance += len(video_keywords.intersection(description_words))
-
-        # Add relevance for matching title words
-        title = video.get("title", "")
-        if title is not None:
-            title_words = set(title.lower().split())
-            relevance += len(title_words.intersection(description_words)) * 2  # Title matches are weighted more
-
-        return relevance
-
-    async def search_pexels_video(self, session: aiohttp.ClientSession, keyword: str,
-                                  description: str) -> Tuple[str, Dict[str, Any]]:
-        url = "https://api.pexels.com/videos/search"
-
-        # Combine keyword and description for a more relevant search
-        combined_query = f"{keyword} {description}"
-        params = {"query": combined_query, "per_page": 15}  # Increased to 15 results for better chances
-
-        try:
-            async with session.get(url, headers=self.pexels_headers, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("videos"):
-                        # Sort videos by relevance to the description
-                        sorted_videos = sorted(data["videos"],
-                                              key=lambda x: self.calculate_relevance(x, description), reverse=True)
-                        best_video = sorted_videos[0]
-                        video_files = best_video.get("video_files", [])
-                        if video_files:
-                            best_quality = max(video_files, key=lambda x: x.get("quality") or 0)
-                            return best_quality.get("link", ""), {
-                                "duration": best_video.get("duration", 0),
-                                "width": best_quality.get("width", 0),
-                                "height": best_quality.get("height", 0),
-                                "fps": best_quality.get("fps", 0)
-                            }
-        except Exception as e:
-            logger.error(f"Error searching Pexels video: {str(e)}")
-        return "", {}
 
     async def search_pexels_image(self, session: aiohttp.ClientSession, keyword: str) -> str:
         url = "https://api.pexels.com/v1/search"
@@ -918,7 +975,7 @@ def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
             if os.path.exists(scene_audio_file):
                 # Get duration of audio
                 audio_segment = AudioSegment.from_mp3(scene_audio_file)
-                duration = len(audio_segment) / 1000  # in seconds
+                duration = audio_segment.duration_seconds  # provides a float value in seconds
                 scene['audio_file'] = scene_audio_file  # Store the audio file path in scene
                 scene['audio_duration'] = duration      # Store the duration
                 audio_segments.append(audio_segment)
@@ -944,7 +1001,6 @@ def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
             shutil.rmtree(temp_dir)
         except Exception as e:
             logger.warning(f"Error removing temporary directory {temp_dir}: {str(e)}")
-
 
 def generate_subtitles(scenes: List[Dict[str, Any]], output_file: str, audio_file: str) -> bool:
     """
@@ -1011,10 +1067,10 @@ def compile_youtube_short(scenes: List[Dict[str, Any]], audio_file: str) -> str:
         total_video_duration = 0.0
 
         for i, scene in enumerate(scenes):
-            duration = scene.get('audio_duration', DEFAULT_SCENE_DURATION)
+            duration = scene.get('adjusted_duration', scene.get('audio_duration', DEFAULT_SCENE_DURATION))
             logger.info(f"Processing scene {i}: Duration = {duration}s")
-            if duration <= 0:
-                logger.warning(f"Scene {i} has non-positive duration, skipping")
+            if not isinstance(duration, (int, float)) or duration <= 0:
+                logger.warning(f"Scene {i} has invalid duration ({duration}), skipping")
                 continue
 
             processed_path = None
@@ -1042,26 +1098,20 @@ def compile_youtube_short(scenes: List[Dict[str, Any]], audio_file: str) -> str:
 
         # Verify total durations
         audio = AudioSegment.from_mp3(audio_file)
-        total_audio_duration = len(audio) / 1000  # Convert to seconds
+        total_audio_duration = audio.duration_seconds  # Provides float value in seconds
         logger.info(f"Total video duration: {total_video_duration}s")
         logger.info(f"Total audio duration: {total_audio_duration}s")
+        if abs(total_video_duration - total_audio_duration) > 0.1:
+            logger.warning("Total video duration does not match total audio duration.")
+            # Adjust scene durations proportionally
+            scaling_factor = total_audio_duration / total_video_duration
+            logger.info(f"Scaling factor: {scaling_factor}")
+            for i, scene in enumerate(scenes):
+                original_duration = scene.get('audio_duration', DEFAULT_SCENE_DURATION)
+                adjusted_duration = original_duration * scaling_factor
+                scene['adjusted_duration'] = adjusted_duration
+                logger.info(f"Scene {i}: Original duration = {original_duration}s, Adjusted duration = {adjusted_duration}s")
 
-        # Adjust the last scene duration if necessary
-        if total_video_duration > total_audio_duration:
-            # Reduce the duration of the last scene
-            excess_duration = total_video_duration - total_audio_duration
-            logger.info(f"Adjusting last scene duration to account for excess duration of {excess_duration}s")
-            last_scene = scene_files[-1]
-            new_duration = scenes[-1].get('audio_duration', DEFAULT_SCENE_DURATION) - excess_duration
-            if new_duration > 0:
-                processed_path = process_video(last_scene, temp_dir, len(scenes)-1, new_duration)
-                if processed_path and os.path.exists(processed_path):
-                    scene_files[-1] = processed_path
-                    total_video_duration -= excess_duration
-                else:
-                    logger.error("Failed to adjust last scene duration")
-            else:
-                logger.error("Excess duration is greater than last scene duration")
 
         # Create concat.txt file
         with open(concat_file, 'w') as f:
@@ -1077,12 +1127,14 @@ def compile_youtube_short(scenes: List[Dict[str, Any]], audio_file: str) -> str:
             'ffmpeg', '-y',
             '-f', 'concat', '-safe', '0', '-i', concat_file,
             '-i', audio_file,
+            '-r', '30',
             '-vf', f"subtitles='{subtitle_file}':force_style='FontSize={SUBTITLE_FONT_SIZE},Alignment={SUBTITLE_ALIGNMENT},"
             f"OutlineColour={SUBTITLE_OUTLINE_COLOR},BorderStyle={SUBTITLE_BORDER_STYLE}'",
             '-map', '0:v',
             '-map', '1:a',
             '-c:v', 'libx264', '-preset', 'ultrafast',
             '-c:a', 'aac', '-shortest',
+            '-vsync', '2',  # Add this option to ensure frame rate consistency
             output_path
         ]
         logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_command)}")
@@ -1131,6 +1183,7 @@ def process_video(video_path: str, temp_dir: str, scene_number: int, duration: f
         logger.info(f"Processing video for scene {scene_number}: Duration = {duration_str}s")
         ffmpeg_command = [
             'ffmpeg', '-y', '-i', video_path, '-t', duration_str,
+            '-r', '30',
             '-vf', f'scale={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}'
                    f':force_original_aspect_ratio=increase,crop={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}',
             '-c:v', 'libx264', '-preset', 'ultrafast', '-an', processed_path
@@ -1153,6 +1206,7 @@ def create_video_from_image(image_path: str, temp_dir: str, scene_number: int, d
     try:
         processed_path = os.path.join(temp_dir, f"processed_scene_{scene_number}.mp4")
         subprocess.run(['ffmpeg', '-y', '-loop', '1', '-i', image_path, '-t', str(duration),
+                        '-r', '30',
                         '-vf', f'scale={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}:force_original_aspect_ratio=increase,crop={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}',
                         '-c:v', 'libx264', '-preset', 'ultrafast', '-an', processed_path],
                        check=True)
@@ -1180,9 +1234,83 @@ def create_fallback_scene(temp_dir: str, scene_number: int, duration: float, tex
         return None
 
 
-async def youtube_shorts_workflow(topic: str, time_frame: str) -> Dict[str, Any]:
+def extract_selected_title(selection_output: str) -> str:
+    """
+    Extracts the selected title from the Title Selection Agent's output.
+    Assumes that the agent's output contains the selected title in a consistent format.
+    """
+    try:
+        lines = selection_output.strip().split('\n')
+        for line in lines:
+            if "Selected Title:" in line or "Title:" in line:
+                # Extract the title part
+                title = line.split(":", 1)[1].strip().strip('"').strip("'")
+                return title
+        # If not found, return the entire output (may not be ideal)
+        return selection_output.strip()
+    except Exception as e:
+        logger.error(f"Error extracting selected title: {str(e)}")
+        return selection_output.strip()
+    
+# Streamlit app
+def main():
+    st.set_page_config(page_title="YouTube Shorts Generator", page_icon="🎥", layout="wide")
+    st.title("YouTube Shorts Generator")
+
+    # Input fields
+    topic = st.text_input("Enter the topic for your YouTube video:")
+    time_frame = st.text_input("Enter the time frame for recent events (e.g., 'past week', '30d', '1y'):")
+    video_length = st.number_input("Enter the desired video length in seconds:")
+
+    if st.button("Generate YouTube Shorts"):
+        if topic and time_frame:
+            with st.spinner("Generating YouTube Shorts..."):
+                try:
+                    results = asyncio.run(youtube_shorts_workflow(topic, time_frame, video_length))
+                    if "Error" in results:
+                        st.error(f"An error occurred: {results['Error']}")
+                    else:
+                        display_results(results)
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {str(e)}")
+                    logger.exception("Unexpected error in YouTube Shorts generation")
+        else:
+            st.warning("Please enter both topic and time frame.")
+
+def display_results(results):
+    st.subheader("Generation Results")
+    for agent_name, result in results.items():
+        with st.expander(f"{agent_name} Result"):
+            if agent_name == "Storyboard Generation Agent" and isinstance(result, list):
+                for scene in result:
+                    st.write(f"Scene {scene['number']}:")
+                    st.write(f"Visual: {scene['visual']}")
+                    st.write(f"Text/Dialogue: {scene['narration_text']}")
+                    if 'video_url' in scene:
+                        st.write(f"Video URL: {scene['video_url']}")
+                        st.write(f"Video Details: {scene['video_details']}")
+                    elif 'image_url' in scene:
+                        st.write(f"Image URL: {scene['image_url']}")
+            else:
+                st.write(result)
+
+    if "Output Video Path" in results:
+        output_path = results["Output Video Path"]
+        if output_path:
+            st.success(f"YouTube Short saved as '{output_path}'")
+            st.video(output_path)
+        else:
+            st.error("Failed to compile YouTube Short")
+            
+async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int) -> Dict[str, Any]:
     # Create graph instance
     graph = Graph()  # Create an instance of the Graph class
+    video_length = video_length * 1000  # Convert to milliseconds
+    # Check if TikTok session ID is set
+    if not SESSION_ID:
+        logger.error("TikTok session ID is not set. Please set the TIKTOK_SESSION_ID environment variable.")
+        results["Error"] = "TikTok session ID is not set"
+        return results
 
     # Create nodes
     recent_events_node = Node(agent=RecentEventsResearchAgent())
@@ -1213,6 +1341,7 @@ async def youtube_shorts_workflow(topic: str, time_frame: str) -> Dict[str, Any]
     logger.info(f"Running workflow for topic {topic} and time frame {time_frame}")
     # Execute workflow
     current_node = recent_events_node
+    logger.info(f"Starting workflow from node: {current_node.agent.name}")
     input_data = {"topic": topic, "time_frame": time_frame}
     results = {}
     try:
@@ -1270,80 +1399,6 @@ async def youtube_shorts_workflow(topic: str, time_frame: str) -> Dict[str, Any]
 
     return results
 
-def extract_selected_title(selection_output: str) -> str:
-    """
-    Extracts the selected title from the Title Selection Agent's output.
-    Assumes that the agent's output contains the selected title in a consistent format.
-    """
-    try:
-        lines = selection_output.strip().split('\n')
-        for line in lines:
-            if "Selected Title:" in line or "Title:" in line:
-                # Extract the title part
-                title = line.split(":", 1)[1].strip().strip('"').strip("'")
-                return title
-        # If not found, return the entire output (may not be ideal)
-        return selection_output.strip()
-    except Exception as e:
-        logger.error(f"Error extracting selected title: {str(e)}")
-        return selection_output.strip()
-
-async def main():
-    try:
-        check_api_keys()
-
-        topic = input("Enter the topic for your YouTube video: ")
-        if not topic:
-            raise ValueError("Topic cannot be empty")
-
-        time_frame = input("Enter the time frame for recent events (e.g., 'past week', '30d', '1y'): ")
-        if not time_frame:
-            raise ValueError("Time frame cannot be empty")
-
-        video_length_input = input("Enter the desired video length in seconds (e.g., 60): ")
-        try:
-            video_length = int(video_length_input)
-        except ValueError:
-            raise ValueError("Video length must be an integer representing seconds")
-
-        print("Executing YouTube Optimization Workflow:")
-        results = await youtube_shorts_workflow(topic, time_frame)
-
-        colors = {
-            "Recent Events Research Agent": "\033[91m",  # Red
-            "Title Generation Agent": "\033[94m",  # Blue
-            "Title Selection Agent": "\033[92m",  # Green
-            "Description Generation Agent": "\033[93m",  # Yellow
-            "Hashtag and Tag Generation Agent": "\033[95m",  # Magenta
-            "Video Script Generation Agent": "\033[96m",  # Cyan
-            "Storyboard Generation Agent": "\033[97m"  # White
-        }
-
-        reset_color = "\033[0m"
-
-        for agent_name, result in results.items():
-            color = colors.get(agent_name, "")
-            print(f"\n{agent_name} Result:")
-            if agent_name == "Storyboard Generation Agent" and isinstance(result, list):
-                for scene in result:
-                    print(f"{color}Scene {scene['number']}:")
-                    print(f"Visual: {scene['visual']}")
-                    print(f"Text/Dialogue: {scene['narration_text']}")  # Corrected key
-                    if 'video_url' in scene:
-                        print(f"Video URL: {scene['video_url']}")
-                        print(f"Video Details: {scene['video_details']}")
-                    elif 'image_url' in scene:
-                        print(f"Image URL: {scene['image_url']}")
-                    print(f"{reset_color}")
-            else:
-                print(f"{color}{result}{reset_color}")
-
-    except ValueError as ve:
-        print(f"Input Error: {ve}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
 
