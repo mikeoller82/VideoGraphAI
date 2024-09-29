@@ -1,8 +1,8 @@
-# YouTube Shorts Generator
+# VideoGraphAI: AI-Powered YouTube Shorts Generator
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)
-![Async](https://img.shields.io/badge/async-IO-brightgreen.svg)
+![Streamlit](https://img.shields.io/badge/streamlit-1.0%2B-red.svg)
 
 ## Table of Contents
 
@@ -20,12 +20,13 @@
 
 ## Overview
 
-YouTube Shorts Generator is an automated script designed to streamline the creation of YouTube Shorts. Leveraging asynchronous operations and various AI agents, this tool handles everything from researching recent events to compiling the final video with voiceovers and subtitles. Whether you're a content creator looking to scale your production or an enthusiast interested in automated video generation, this tool provides a comprehensive solution.
+VideoGraphAI is a Streamlit-based application designed to streamline the creation of YouTube Shorts. Leveraging graph agents with Groq's API Endpoints ( you can honestly change it to whatevr endpoint you want with OpenAI Compatibilty  would work all the sam maybe better) technologies, this tool handles everything from researching recent events with realtime web search capabilties thru Tavily Sarch API to compiling the final video from pexels and pixabay videos with voiceovers from TikTok and subtitles with Gentle. Whether you're a content creator looking to scale your production or an enthusiast interested in automated video generation, VideoGraphAI provides a starting point as its very beta, I beg for contributions and  solutions.
 
 ## Features
 
-- **Automated Research**: Gathers recent events related to your chosen topic.
-- **AI-Powered Content Generation**: Utilizes multiple AI agents for crafting titles, descriptions, hashtags, scripts, and storyboards.
+- **User-Friendly Interface**: Easy-to-use Streamlit web application for inputting parameters and generating videos.
+- **Automated Research**: Utilizes graph agents to gather and analyze recent events related to your chosen topic.
+- **AI-Powered Content Generation**: Employs multiple AI agents for crafting titles, descriptions, hashtags, scripts, and storyboards.
 - **Media Integration**: Searches and integrates relevant videos and images from Pexels and Pixabay.
 - **Voiceover and Subtitles**: Generates synchronized voiceovers and subtitles using Gentle and TikTokVoice.
 - **Video Compilation**: Assembles video clips, images, voiceovers, and subtitles into a polished YouTube Short using FFmpeg.
@@ -33,16 +34,18 @@ YouTube Shorts Generator is an automated script designed to streamline the creat
 
 ## Workflow
 
-1. **Research**: The script starts by researching recent events based on the provided topic and timeframe.
-2. **Content Generation**:
+1. **User Input**: Through the Streamlit interface, users provide the topic, timeframe, and desired video length.
+2. **Research**: The application researches recent events based on the provided topic and timeframe using graph agents.
+3. **Content Generation**:
    - Generates multiple title suggestions and selects the most effective one.
    - Creates an optimized video description.
    - Generates relevant hashtags and tags.
    - Develops a concise video script tailored for YouTube Shorts.
-3. **Storyboard Creation**: Translates the script into a detailed storyboard with visual and textual elements.
-4. **Media Acquisition**: Downloads necessary video clips and images from stock sources.
-5. **Voiceover and Subtitles**: Produces a voiceover for the script and generates synchronized subtitles.
-6. **Video Compilation**: Compiles all elements into a final YouTube Short video.
+4. **Storyboard Creation**: Translates the script into a detailed storyboard with visual and textual elements.
+5. **Media Acquisition**: Downloads necessary video clips and images from stock sources.
+6. **Voiceover and Subtitles**: Produces a voiceover for the script and generates synchronized subtitles.
+7. **Video Compilation**: Compiles all elements into a final YouTube Short video.
+8. **Result Presentation**: Displays the generated video and provides download options through the Streamlit interface.
 
 ## Prerequisites
 
@@ -56,8 +59,8 @@ YouTube Shorts Generator is an automated script designed to streamline the creat
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/mikeoller82/youtube-shorts-generator.git
-   cd youtube-shorts-generator
+   git clone https://github.com/mikeoller82/videographai.git
+   cd videographai
    ```
 
 2. **Create a Virtual Environment**
@@ -105,13 +108,14 @@ YouTube Shorts Generator is an automated script designed to streamline the creat
    TAVILY_API_KEY=your_tavily_api_key
    PIXABAY_API_KEY=your_pixabay_api_key
    TIKTOK_SESSION_ID=your_tiktok_session_id
+   (get yout tik tok session id byt going to tiktok, right click anywhere , go to inspect source , then click on arrows that extends menu at top , click applications, search for session id..super simple)
    ```
 
    **Note**: Replace `your_*` with your actual API keys. Ensure that the `.env` file is kept secure and is not committed to version control.
 
 2. **Gentle Server Setup**
 
-   The script uses Gentle for audio-text alignment. You can set it up using Docker:
+   The application uses Gentle for audio-text alignment. You can set it up using Docker:
 
    ```bash
    docker run -d -p 8765:8765 lowerquality/gentle
@@ -121,53 +125,51 @@ YouTube Shorts Generator is an automated script designed to streamline the creat
 
 ## Usage
 
-Run the script using Python:
+Run the Streamlit application:
 
 ```bash
-python youtube_shorts_generator.py
+streamlit run app.py
 ```
 
-**Upon Execution**, you will be prompted to provide:
+This will launch the VideoGraphAI web interface in your default browser. Follow the on-screen instructions to:
 
-1. **Topic**: The subject for your YouTube Short.
-2. **Time Frame**: The period for recent events (e.g., 'past week', 'past year', 'all').
-3. **Video Length**: Desired length of the video in seconds (e.g., 60).
+1. Enter your desired topic for the YouTube Short.
+2. Specify the time frame for recent events.
+3. Set the desired video length.
+4. Click the "Generate Video" button to start the process.
 
-The script will execute the workflow and generate a YouTube Short based on your inputs.
+The application will display progress updates and eventually present the final video for download.
 
 ## Example
 
-1. **Run the Script**
+1. **Launch the Application**
 
    ```bash
-   python youtube_shorts_generator.py
+   streamlit run app.py
    ```
 
-2. **Provide Inputs**
+2. **Input Parameters**
 
-   ```
-   Enter the topic for your YouTube video: Unexplained Mysteries
-   Enter the time frame for recent events (e.g., 'past week', '30d', '1y'): past month
-   Enter the desired video length in seconds (e.g., 60): 60
-   ```
+   - Topic: "whatever topic you want a vidoe on"
+   - Time Frame: "past month, past year, all" all gives you all time search
+   - Video Length: 60, 120, 180....it goes by seconds just keep that in mnd or it defualts to 60
 
-3. **Output**
+3. **Generate Video**
 
-   The script will process the inputs, generate necessary content, and compile the final video. Upon successful execution, you will see:
+   Click the "Generate Video" button and wait for the process to complete.
 
-   ```
-   YouTube Short saved as 'youtube_short.mp4'
-   ```
+4. **Result**
 
-   The video will be located in the current working directory.
+   The application will display the generated video and it will download toyour working directory to youtube_short.mp4 i believe i forget sorry.
 
 ## Troubleshooting
 
-- **Missing API Keys**: Ensure all required API keys are correctly set in the `.env` file.
+- **API Key Issues**: Ensure all required API keys are correctly set in the `.env` file.
 - **Gentle Server Errors**: Verify that the Gentle server is running and accessible at `http://localhost:8765`.
 - **FFmpeg Issues**: Ensure FFmpeg is installed and correctly added to your system's PATH.
 - **Dependency Issues**: Make sure all Python dependencies are installed without errors. Consider using a virtual environment.
-- **Video Compilation Failures**: Check the logs for specific errors. Ensure that all media files are correctly downloaded and accessible.
+- **Video Compilation Failures**: Check the application logs for specific errors. Ensure that all media files are correctly downloaded and accessible.
+- **Streamlit Interface Problems**: Clear your browser cache or try a different browser if the interface is not loading correctly.
 
 ## Contributing
 
