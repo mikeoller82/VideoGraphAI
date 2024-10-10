@@ -4,20 +4,23 @@ import aiohttp
 import aiofiles
 import tempfile
 import subprocess
+import base64
+from enum import Enum
+from together import Together
 import json
 import logging
 import shutil
 from dotenv import load_dotenv
 import os
-from gtts import gTTS
+import re
 import requests
 import spacy
 import datetime
-import textwrap
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from pydub import AudioSegment
 from moviepy.editor import *
-import moviepy.config as conf
-from typing import List, Dict, Any, Tuple, Callable
+from typing import List, Dict, Any, Tuple, Callable, Optional
 from abc import ABC, abstractmethod
 from groq import AsyncGroq
 from tiktokvoice import tts
@@ -32,7 +35,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Constants
-REQUIRED_API_KEYS = ["GROQ_API_KEY", "PEXELS_API_KEY", "TAVILY_API_KEY", "TIKTOK_SESSION_ID", "PIXABAY_API_KEY"]
+REQUIRED_API_KEYS = ["GROQ_API_KEY", "BFL_API_KEY", "TOGETHER_API_KEY", "TAVILY_API_KEY", "TIKTOK_SESSION_ID"]
 YOUTUBE_SHORT_RESOLUTION = (1080, 1920)
 MAX_SCENE_DURATION = 5
 DEFAULT_SCENE_DURATION = 1
@@ -46,13 +49,13 @@ FALLBACK_SCENE_TEXT_COLOR = "yellow@0.5"
 FALLBACK_SCENE_BOX_COLOR = "black@0.5"
 FALLBACK_SCENE_BOX_BORDER_WIDTH = 5
 FALLBACK_SCENE_FONT_SIZE = 30
-FALLBACK_SCENE_FONT_FILE = "/tmp/qualitype/opentype/QTHelvet-Black.otf"  # Replace with your font path
+FALLBACK_SCENE_FONT_FILE = "/tmp/qualitype/opentype/QTHelvet-Black.otf"
 
 # Load API keys from environment variables
 groq_api_key = os.getenv("GROQ_API_KEY")
-pexels_api_key = os.getenv("PEXELS_API_KEY")
+bfl_api_key = os.getenv("BFL_API_KEY")
+together_api_key = os.getenv("TOGETHER_API_KEY")
 tavily_api_key = os.getenv("TAVILY_API_KEY")
-pixabay_api_key = os.getenv("PIXABAY_API_KEY")
 SESSION_ID = os.getenv("TIKTOK_SESSION_ID")
 
 # Helper functions
@@ -61,31 +64,35 @@ async def get_data(query: str) -> List[Dict[str, Any]]:
     data = await groq.query(query)
     return data
 
+class PixelFormat(Enum):
+    YUVJ420P = 'yuvj420p'
+    YUVJ422P = 'yuvj422p'
+    YUVJ444P = 'yuvj444p'
+    YUVJ440P = 'yuvj440p'
+    YUV420P = 'yuv420p'
+    YUV422P = 'yuv422p'
+    YUV444P = 'yuv444p'
+    YUV440P = 'yuv440p'
+
+def get_compatible_pixel_format(pix_fmt: str) -> str:
+    """Convert deprecated pixel formats to their compatible alternatives."""
+    if pix_fmt == PixelFormat.YUVJ420P.value:
+        return PixelFormat.YUV420P.value
+    elif pix_fmt == PixelFormat.YUVJ422P.value:
+        return PixelFormat.YUV422P.value
+    elif pix_fmt == PixelFormat.YUVJ444P.value:
+        return PixelFormat.YUV444P.value
+    elif pix_fmt == PixelFormat.YUVJ440P.value:
+        return PixelFormat.YUV440P.value
+    else:
+        return pix_fmt
+
 
 def check_api_keys():
     for key in REQUIRED_API_KEYS:
         if not os.getenv(key):
             raise ValueError(f"Missing required API key: {key}")
         
-def search_pixabay_videos(pixabay_api_key, query, lang="en", id=None, video_type="all", category=None, min_width=0, min_height=0, editors_choice=False, safesearch=False, order="popular", page=1, per_page=20):
-    url = "https://pixabay.com/api/videos/"
-    params = {
-        "key": pixabay_api_key,
-        "q": query,
-        "lang": lang,
-        "id": id,
-        "video_type": video_type,
-        "category": category,
-        "min_width": min_width,
-        "min_height": min_height,
-        "editors_choice": editors_choice,
-        "safesearch": safesearch,
-        "order": order,
-        "page": page,
-        "per_page": per_page
-    }
-    response = requests.get(url, params=params)
-    return response.json()
 
 def align_with_gentle(audio_file: str, transcript_file: str) -> dict:
     """Aligns audio and text using Gentle and returns the alignment result."""
@@ -231,7 +238,7 @@ class Graph:
 
 class VideoProcessor:
     def __init__(self):
-        self.nlp = spacy.load("en_core_web_sm")
+        self.nlp = nlp
 
     def calculate_relevance(self, video: Dict[str, Any], description: str, timestamp: float) -> float:
         relevance = 0
@@ -329,19 +336,74 @@ class WebSearchTool(Tool):
 
             async with aiohttp.ClientSession() as session:
                 async with session.post("https://api.tavily.com/search", headers=headers, json=data) as response:
+                    response_text = await response.text()
                     if response.status == 200:
                         return await response.json()
                     else:
-                        logger.error(f"Error in WebSearchTool: HTTP {response.status}")
-                        raise Exception(f"HTTP {response.status}: {await response.text()}")
+                        logger.error(f"WebSearchTool Error: HTTP {response.status} - {response_text}")
+                        raise Exception(f"HTTP {response.status}: {response_text}")
         except Exception as e:
             logger.error(f"Error in WebSearchTool: {str(e)}")
             raise
 
+class ImageGenerationAgent(Agent):
+    def __init__(self):
+        super().__init__("Image Generation Agent", "black-forest-labs/FLUX.1-schnell-Free")
+        self.client = Together(api_key=together_api_key)
 
+    async def execute(self, input_data: Dict[str, Any]) -> Any:
+        scenes = input_data.get('scenes', [])
+        results = []
+
+        for i, scene in enumerate(scenes):
+            visual_description = scene.get('visual', '')
+            image_keyword = scene.get('image_keyword', '')
+
+            # Combine the visual description and image keyword for a more detailed prompt
+            prompt = prompt = f"""
+Create a image that will go viral on youtube based on the following scene description:
+{visual_description},{image_keyword}
+"""
+            try:
+                logger.info(f"Generating image for scene {i+1}/{len(scenes)}")
+                response = self.client.images.generate(
+                    prompt=prompt,
+                    model=self.model,
+                    width=768,
+                    height=1024,
+                    steps=4,
+                    n=1,
+                    response_format="b64_json"
+                )
+
+                # Decode the base64 image
+                image_data = base64.b64decode(response.data[0].b64_json)
+
+                # Save the image to a temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                    temp_file.write(image_data)
+                    temp_file_path = temp_file.name
+
+                logger.info(f"Image for scene {i+1} saved as {temp_file_path}")
+
+                results.append({
+                    'image_path': temp_file_path,
+                    'prompts': prompt
+                })
+
+            except Exception as e:
+                logger.error(f"Error in image generation for scene {i+1}: {str(e)}")
+                results.append(None)
+
+            # Add a delay between requests to avoid rate limiting
+            await asyncio.sleep(2)
+
+        logger.info(f"Image generation completed. Generated {len([r for r in results if r is not None])}/{len(scenes)} images.")
+        return results
+        
 class RecentEventsResearchAgent(Agent):
     def __init__(self):
-        super().__init__("Recent Events Research Agent", "llama-3.2-3b-preview")
+        super().__init__("Recent Events Research Agent", "llama-3.1-70b-versatile")
         self.web_search_tool = WebSearchTool()
 
     async def execute(self, input_data: Dict[str, Any]) -> Any:
@@ -405,7 +467,7 @@ documentary-style presentation."""
 # Updated AI Agents for YouTube content optimization
 class TitleGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Title Generation Agent", "gemma2-9b-it")
+        super().__init__("Title Generation Agent", "llama-3.1-70b-versatile")
 
     async def execute(self, input_data: Any) -> Any:
         research_result = input_data  # Accept research output
@@ -438,7 +500,7 @@ middle, and a final 5 titles with the keyword at the end."""
 
 class TitleSelectionAgent(Agent):
     def __init__(self):
-        super().__init__("Title Selection Agent", "gemma2-9b-it")
+        super().__init__("Title Selection Agent", "llama-3.1-8b-instant")
 
     async def execute(self, input_data: Any) -> Any:
         generated_titles = input_data  # Accept generated titles
@@ -487,7 +549,7 @@ the others."""
 
 class DescriptionGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Description Generation Agent", "llama-3.1-70b-versatile")
+        super().__init__("Description Generation Agent", "gemma2-9b-it")
 
     async def execute(self, input_data: Any) -> Any:
         selected_title = input_data  # Accept selected title
@@ -531,7 +593,7 @@ compels viewers to engage with the video and channel."""
 
 class HashtagAndTagGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Hashtag and Tag Generation Agent", "llama-3.1-70b-versatile")
+        super().__init__("Hashtag and Tag Generation Agent", "llama-3.1-8b-instant")
 
     async def execute(self, input_data: str) -> Any:
         selected_title = input_data  # Accept selected title
@@ -581,13 +643,13 @@ will contribute to the video's overall performance on YouTube."""
 
 class VideoScriptGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Video Script Generation Agent", "mixtral-8x7b-32768")
+        super().__init__("Video Script Generation Agent", "gemma2-9b-it")
 
     async def execute(self, input_data: Dict[str, Any]) -> Any:
         research_result = input_data.get('research', '')
         video_length = input_data.get('video_length', 60)  # Default to 60 seconds if not specified
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""As a YouTube Shorts content creator, craft a brief, engaging script for a 
+        prompt = f"""As a YouTube content creator, craft a detailed, engaging and entralling script for a 
 {video_length}-second vertical video based on the following information:
 
 {research_result}
@@ -608,7 +670,7 @@ Optimize for viewer retention and engagement."""
             ],
             model=self.model,
             temperature=0.7,
-            max_tokens=1024,
+            max_tokens=2048,
             stream=True,
         )
         response = ""
@@ -617,48 +679,50 @@ Optimize for viewer retention and engagement."""
         return response
 
 
-async def download_with_retry(url: str, directory: str, filename: str, headers: Dict[str, str] = None,
-                              max_retries: int = 3) -> str:
-    """Downloads a file with retries."""
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        file_path = os.path.join(directory, filename)
-                        async with aiofiles.open(file_path, 'wb') as f:
-                            await f.write(await response.read())
-                        return file_path
-                    else:
-                        logger.warning(f"Download attempt {attempt + 1} failed: HTTP {response.status}")
-        except Exception as e:
-            logger.warning(f"Download attempt {attempt + 1} failed: {str(e)}")
-    return None
+    async def download_with_retry(url: str, directory: str, filename: str, headers: Dict[str, str] = None,
+                                max_retries: int = 3) -> str:
+        """Downloads a file with retries."""
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 200:
+                            file_path = os.path.join(directory, filename)
+                            async with aiofiles.open(file_path, 'wb') as f:
+                                await f.write(await response.read())
+                            return file_path
+                        else:
+                            logger.warning(f"Download attempt {attempt + 1} failed: HTTP {response.status}")
+            except Exception as e:
+                logger.warning(f"Download attempt {attempt + 1} failed: {str(e)}")
+        return None
 
 
 class StoryboardGenerationAgent(Agent):
     def __init__(self):
         super().__init__("Storyboard Generation Agent", "llama-3.1-70b-versatile")
-        self.pexels_headers = {"Authorization": pexels_api_key}
-        self.pixabay_headers = {"Authorization": pixabay_api_key}
         self.nlp = nlp
 
-    async def execute(self, input_data: str) -> Any:
-        client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""Create a storyboard for a YouTube Short based on VideoScriptGenerationAgent's 
-response:
+    async def execute(self, input_data: Dict[str, Any]) -> Any:
+        script = input_data.get('script', '')
+        
+        if not script:
+            logger.error("No script provided for storyboard generation")
+            return []
 
-{input_data}
+        client = AsyncGroq(api_key=groq_api_key)
+        prompt = f"""Create a storyboard for a YouTube Short based on the following script:
+
+{script}
 
 For each major scene (aim for 15-20 scenes), provide:
 1. Visual: A brief description of the visual elements (1 sentence). Ensure each scene has unique 
 visual elements.
-2. Text: The exact text/dialogue for voiceover and subtitles from
+2. Text: The exact text/dialogue for voiceover and subtitles.
 3. Video Keyword: A suitable keyword for searching stock video footage. Be specific and avoid 
 repeating keywords.
 4. Image Keyword: A backup keyword for searching a stock image. Be specific and avoid repeating 
 keywords.
-
 
 Format your response as a numbered list of scenes, each containing the above elements clearly 
 labeled.
@@ -680,8 +744,7 @@ Please ensure each scene has all four elements (Visual, Text, Video Keyword, and
             messages=[
                 {"role": "system",
                  "content": "You are an AI assistant specializing in creating detailed storyboards "
-                            "for YouTube Shorts using the Video Script Agent script for your "
-                            "narrator text and subtitles."},
+                            "for YouTube Shorts using the provided script."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -696,27 +759,65 @@ Please ensure each scene has all four elements (Visual, Text, Video Keyword, and
         logger.info(f"Raw storyboard response: {response}")
         scenes = self.parse_scenes(response)
         if not scenes:
-            raise ValueError("Failed to generate valid storyboard scenes")
-        await self.fetch_media_for_scenes(scenes)
+            logger.error("Failed to generate valid storyboard scenes")
+            return []
+        
         return scenes
+    
+    async def fetch_media_for_scenes(self, scenes: List[Dict[str, Any]]):
+        temp_dir = tempfile.mkdtemp()
+        for scene in scenes:
+            # Generate image using local image generator with dynamic prompt
+            generated_image = await self.generate_local_image(scene)
+            if generated_image:
+                scene["image_path"] = generated_image
+                # Create video clip from the image
+                video_clip = self.create_video_from_image(generated_image, temp_dir, scene['number'], scene.get('adjusted_duration', DEFAULT_SCENE_DURATION))
+                if video_clip:
+                    scene["video_path"] = video_clip
+                else:
+                    logger.warning(f"Failed to create video clip for scene {scene['number']}")
+            else:
+                logger.warning(f"Failed to generate image for scene {scene['number']}")
 
+    async def generate_local_image(self, scene: Dict[str, Any]) -> Optional[str]:
+        """Generate an image using the local image generator."""
+        try:
+            image_gen_input = {"scene": scene}
+            image_gen_result = await self.image_generation_agent.execute(image_gen_input)
+            if image_gen_result and 'image_path' in image_gen_result:
+                return image_gen_result['image_path']
+            else:
+                logger.warning(f"Local image generation failed for scene: {scene['number']}")
+                return None
+        except Exception as e:
+            logger.error(f"Error in local image generation: {str(e)}")
+            return None
+    
     def parse_scenes(self, response: str) -> List[Dict[str, Any]]:
         scenes = []
         current_scene = {}
-        scene_number = 0
+        current_scene_number = None
 
         for line in response.split('\n'):
             line = line.strip()
             logger.debug(f"Processing line: {line}")
 
-            if line.startswith(tuple(f"{i}." for i in range(1, 21))):
+            if line.startswith(tuple(f"{i}." for i in range(1, 51))):  # Assuming up to 50 scenes
                 if current_scene:
-                    scenes.append(self.validate_and_fix_scene(current_scene, scene_number))
-                    logger.debug(f"Scene {scene_number} appended to scenes list")
-                try:
-                    scene_number = int(line.split('.', 1)[0])
+                    # Append the completed current_scene
+                    current_scene['number'] = current_scene_number
+                    # Ensure the scene is validated and enhanced
+                    current_scene = self.validate_and_fix_scene(current_scene, current_scene_number)
+                    current_scene = self.enhance_scene_keywords(current_scene)
+                    scenes.append(current_scene)
+                    logger.debug(f"Scene {current_scene_number} appended to scenes list")
                     current_scene = {}
-                    logger.debug(f"New scene number detected: {scene_number}")
+
+                try:
+                    # Start a new scene
+                    current_scene_number = int(line.split('.', 1)[0])
+                    logger.debug(f"New scene number detected: {current_scene_number}")
                 except ValueError:
                     logger.warning(f"Invalid scene number format: {line}")
                     continue  # Skip this line and move to the next
@@ -726,13 +827,40 @@ Please ensure each scene has all four elements (Visual, Text, Video Keyword, and
                 value = value.strip()
                 current_scene[key] = value
                 logger.debug(f"Key-value pair added to current scene: {key}:{value}")
+            else:
+                logger.warning(f"Line format not recognized: {line}")
 
+        # After looping through all lines, check if there is an unfinished scene
         if current_scene:
-            scenes.append(self.validate_and_fix_scene(current_scene, scene_number))
-            logger.debug("Final scene appended to scenes list")
+            current_scene['number'] = current_scene_number
+            current_scene = self.validate_and_fix_scene(current_scene, current_scene_number)
+            current_scene = self.enhance_scene_keywords(current_scene)
+            scenes.append(current_scene)
+            logger.debug(f"Final scene {current_scene_number} appended to scenes list")
 
-        logger.info(f"Parsed and validated scenes: {scenes}")
+        logger.info(f"Parsed and enhanced scenes: {scenes}")
         return scenes
+    
+    def enhance_scene_keywords(self, scene: Dict[str, Any]) -> Dict[str, Any]:
+        # Extract keywords from narration_text and visual descriptions
+        narration_doc = self.nlp(scene.get('narration_text', ''))
+        visual_doc = self.nlp(scene.get('visual', ''))
+
+        # Function to extract nouns and named entities
+        def extract_keywords(doc):
+            return [token.lemma_ for token in doc if token.pos_ in ('NOUN', 'PROPN') or token.ent_type_]
+
+        narration_keywords = extract_keywords(narration_doc)
+        visual_keywords = extract_keywords(visual_doc)
+
+        # Combine and deduplicate keywords
+        combined_keywords = list(set(narration_keywords + visual_keywords))
+
+        # Generate enhanced video and image keywords
+        scene['video_keyword'] = ' '.join(combined_keywords[:5])  # Use top 5 keywords
+        scene['image_keyword'] = scene['video_keyword']
+
+        return scene
 
     def validate_and_fix_scene(self, scene: Dict[str, Any], scene_number: int) -> Dict[str, Any]:
         # Ensure 'number' key is present in the scene dictionary
@@ -760,33 +888,6 @@ Please ensure each scene has all four elements (Visual, Text, Video Keyword, and
         scene['narration_text'] = text
 
         return scene
-    
-    async def search_pixabay_image(self, session: aiohttp.ClientSession, keyword: str) -> str:
-        pixabay_api_key = os.getenv("PIXABAY_API_KEY")
-        if not pixabay_api_key:
-            logger.warning("Pixabay API key not found in environment variables")
-            return ""
-
-        url = "https://pixabay.com/api/"
-        params = {
-            "key": pixabay_api_key,
-            "q": keyword,
-            "image_type": "photo",
-            "per_page": 1,
-            "safesearch": True
-        }
-
-        try:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("hits"):
-                        return data["hits"][0]["largeImageURL"]
-                else:
-                    logger.error(f"Pixabay image search failed with status {response.status}")
-        except Exception as e:
-            logger.error(f"Error searching Pixabay image: {str(e)}")
-        return ""
 
     def calculate_relevance(self, video: Dict[str, Any], description: str) -> float:
         relevance = 0
@@ -805,141 +906,11 @@ Please ensure each scene has all four elements (Visual, Text, Video Keyword, and
         return relevance
 
     def calculate_similarity(self, text1: str, text2: str) -> float:
-        """Calculates the semantic similarity between two texts using spacy."""
-        doc1 = self.nlp(text1.lower())
-        doc2 = self.nlp(text2.lower())
-        return doc1.similarity(doc2)
-
-    async def search_pexels_video(self, session: aiohttp.ClientSession, scene: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-        url = "https://api.pexels.com/videos/search"
-
-        # Combine the video keyword, narration text, and visual description
-        combined_query = ' '.join([
-            scene.get('video_keyword', ''),
-            scene.get('narration_text', ''),
-            scene.get('visual', '')
-        ])
-        # Use the combined query for searching
-        params = {"query": combined_query, "per_page": 15}
-
-        try:
-            async with session.get(url, headers=self.pexels_headers, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("videos"):
-                        # Sort videos based on semantic similarity with the scene text
-                        scene_text = combined_query
-                        sorted_videos = sorted(
-                            data["videos"],
-                            key=lambda x: self.calculate_similarity(
-                                scene_text, x.get('user', {}).get('name', '') + ' ' +
-                                            ' '.join(tag['title'] for tag in x.get('tags', []))
-                            ),
-                            reverse=True
-                        )
-                        best_video = sorted_videos[0]
-                        video_files = best_video.get("video_files", [])
-                        if video_files:
-                            best_quality = max(video_files, key=lambda x: x.get("quality") or 0)
-                            return best_quality.get("link", ""), {
-                                "duration": best_video.get("duration", 0),
-                                "width": best_quality.get("width", 0),
-                                "height": best_quality.get("height", 0),
-                                "fps": best_quality.get("fps", 0)
-                            }
-        except Exception as e:
-            logger.error(f"Error searching Pexels video: {str(e)}")
-        return "", {}
-
-    async def search_pixabay_video(self, session: aiohttp.ClientSession, scene: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-        pixabay_api_key = os.getenv("PIXABAY_API_KEY")
-        if not pixabay_api_key:
-            logger.warning("Pixabay API key not found in environment variables")
-            return "", {}
-
-        try:
-            # Combine the video keyword, narration text, and visual description
-            combined_query = ' '.join([
-                scene.get('video_keyword', ''),
-                scene.get('narration_text', ''),
-                scene.get('visual', '')
-            ])
-            videos = search_pixabay_videos(pixabay_api_key, combined_query, per_page=15)
-
-            if videos["totalHits"] > 0:
-                scene_text = combined_query
-                # Sort videos based on semantic similarity
-                sorted_videos = sorted(
-                    videos["hits"],
-                    key=lambda x: self.calculate_similarity(
-                        scene_text, x.get('tags', '') + ' ' + x.get('user', '')
-                    ),
-                    reverse=True
-                )
-                best_video = sorted_videos[0]
-                video_url = best_video["videos"]["large"]["url"]
-                video_details = {
-                    "duration": best_video.get("duration", 0),
-                    "width": best_video["videos"]["large"].get("width", 0),
-                    "height": best_video["videos"]["large"].get("height", 0),
-                }
-                return video_url, video_details
-        except Exception as e:
-            logger.error(f"Error searching Pixabay video: {str(e)}")
-        return "", {}
-
-    async def fetch_media_for_scenes(self, scenes: List[Dict[str, Any]]):
-        temp_dir = tempfile.mkdtemp()
-        async with aiohttp.ClientSession() as session:
-            for scene in scenes:
-                # Try Pexels first
-                video_url, video_details = await self.search_pexels_video(session, scene)
-                
-                # If no video found on Pexels, try Pixabay
-                if not video_url:
-                    video_url, video_details = await self.search_pixabay_video(session, scene)
-
-                if video_url:
-                    video_path = await download_with_retry(video_url, temp_dir, f"scene_{scene['number']}.mp4", headers=self.pexels_headers)
-                    if video_path:
-                        scene["video_path"] = video_path
-                        scene["video_details"] = video_details
-                    else:
-                        # Fallback to image if video download fails
-                        image_url = await self.search_pexels_image(session, scene["image_keyword"])
-                        if not image_url:
-                            # Try Pixabay for image
-                            image_url = await self.search_pixabay_image(session, scene["image_keyword"])
-                        if image_url:
-                            image_path = await download_with_retry(image_url, temp_dir, f"scene_{scene['number']}.jpg")
-                            if image_path:
-                                scene["image_path"] = image_path
-                else:
-                    # Search for image if no suitable video found
-                    image_url = await self.search_pexels_image(session, scene["image_keyword"])
-                    if not image_url:
-                        # Try Pixabay for image
-                        image_url = await self.search_pixabay_image(session, scene["image_keyword"])
-                    if image_url:
-                        image_path = await download_with_retry(image_url, temp_dir, f"scene_{scene['number']}.jpg")
-                        if image_path:
-                            scene["image_path"] = image_path
-                    else:
-                        # Use a default image as a fallback if no image found
-                        scene["image_path"] = "path/to/default_image.jpg"  # Replace with your default image path
-                        logger.warning(f"Using default image for scene {scene['number']}")
-
-    async def search_pexels_image(self, session: aiohttp.ClientSession, keyword: str) -> str:
-        url = "https://api.pexels.com/v1/search"
-        headers = {"Authorization": pexels_api_key}
-        params = {"query": keyword, "per_page": 1}
-
-        async with session.get(url, headers=headers, params=params) as response:
-            if response.status == 200:
-                data = await response.json()
-                if data["photos"]:
-                    return data["photos"][0]["src"]["medium"]
-            return ""
+        """Calculates the cosine similarity between two texts."""
+        vectorizer = TfidfVectorizer().fit_transform([text1, text2])
+        vectors = vectorizer.toarray()
+        cos_sim = cosine_similarity([vectors[0]], [vectors[1]])[0][0]
+        return cos_sim
 
     def fallback_scene_generation(self, invalid_scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         valid_scenes = []
@@ -955,6 +926,183 @@ Please ensure each scene has all four elements (Visual, Text, Video Keyword, and
             valid_scenes.append(scene)
         return valid_scenes
 
+def compile_youtube_short(scenes: List[Dict[str, Any]], audio_file: str) -> str:
+    """Compiles the YouTube Short using ffmpeg."""
+    if not scenes:
+        logger.error("No scenes were generated. Cannot compile YouTube Short.")
+        return None
+
+    temp_dir = tempfile.mkdtemp()
+    scene_files = []
+    subtitle_file = os.path.join(temp_dir, "subtitles.srt")
+    concat_file = os.path.join(temp_dir, 'concat.txt')
+    output_path = os.path.join(os.getcwd(), "youtube_short.mp4")
+
+    try:
+        if not generate_voiceover(scenes, audio_file):
+            raise Exception("Failed to generate voiceover")
+
+        if not generate_subtitles(scenes, subtitle_file, audio_file):
+            raise Exception("Failed to generate subtitles")
+
+        # Collect total audio duration and adjust scene durations before processing scenes
+        total_audio_duration = sum(scene.get('audio_duration', 0) for scene in scenes)
+        logger.info(f"Total audio duration: {total_audio_duration}s")
+
+        # Initially set total_video_duration as the sum of original scene durations
+        total_video_duration = sum(scene.get('audio_duration', DEFAULT_SCENE_DURATION) for scene in scenes)
+        logger.info(f"Total video duration before adjustment: {total_video_duration}s")
+
+        # Adjust scene durations if necessary
+        if abs(total_video_duration - total_audio_duration) > 0.1:
+            logger.warning("Total video duration does not match total audio duration.")
+            scaling_factor = total_audio_duration / total_video_duration
+            logger.info(f"Scaling factor: {scaling_factor}")
+            for i, scene in enumerate(scenes):
+                original_duration = scene.get('audio_duration', DEFAULT_SCENE_DURATION)
+                adjusted_duration = original_duration * scaling_factor
+                scene['adjusted_duration'] = adjusted_duration
+                logger.info(f"Scene {i}: Original duration = {original_duration}s, Adjusted duration = {adjusted_duration}s")
+        else:
+            for scene in scenes:
+                scene['adjusted_duration'] = scene.get('audio_duration', DEFAULT_SCENE_DURATION)
+
+        # Now process each scene using the adjusted durations
+        for i, scene in enumerate(scenes):
+            duration = scene.get('adjusted_duration', scene.get('audio_duration', DEFAULT_SCENE_DURATION))
+            logger.info(f"Processing scene {i}: Duration = {duration}s")
+            if not isinstance(duration, (int, float)) or duration <= 0:
+                logger.warning(f"Scene {i} has invalid duration ({duration}), skipping")
+                continue
+
+            processed_path = None
+            try:
+                if i == 0 and 'image_path' in scene:
+                    # Apply effects to the generated image
+                    processed_path = apply_effects_to_image(scene['image_path'], temp_dir, i, duration)
+                elif 'video_path' in scene and os.path.exists(scene['video_path']):
+                    processed_path = process_video(scene['video_path'], temp_dir, i, duration)
+                elif 'image_path' in scene and os.path.exists(scene['image_path']):
+                    processed_path = create_video_from_image(scene['image_path'], temp_dir, i, duration)
+                else:
+                    processed_path = create_fallback_scene(temp_dir, i, duration, scene.get('narration_text', ''))
+
+                if processed_path and os.path.exists(processed_path):
+                    scene_files.append(processed_path)
+                else:
+                    logger.error(f"Failed to process media for scene {i}")
+            except Exception as e:
+                logger.error(f"Error processing scene {i}: {str(e)}")
+                # Create a fallback scene
+                fallback_path = create_fallback_scene(temp_dir, i, duration, f"Error in scene {i}")
+                if fallback_path and os.path.exists(fallback_path):
+                    scene_files.append(fallback_path)
+
+        # Create concat.txt file
+        with open(concat_file, 'w') as f:
+            for file in scene_files:
+                f.write(f"file '{file}'\n")
+
+        with open(concat_file, 'r') as f:
+            concat_contents = f.read()
+            logger.info(f"Contents of concat file:\n{concat_contents}")
+
+        ffmpeg_command = [
+            'ffmpeg', '-y',
+            '-f', 'concat', '-safe', '0', '-i', concat_file,
+            '-i', audio_file,
+            '-r', '30',
+            '-vf', f"subtitles='{subtitle_file}':force_style='FontSize={SUBTITLE_FONT_SIZE},Alignment={SUBTITLE_ALIGNMENT},"
+            f"OutlineColour={SUBTITLE_OUTLINE_COLOR},BorderStyle={SUBTITLE_BORDER_STYLE}'",
+            '-map', '0:v',
+            '-map', '1:a',
+            '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-c:a', 'aac', '-shortest',
+            output_path
+        ]
+        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_command)}")
+        subprocess.run(ffmpeg_command, check=True)
+
+        if os.path.exists(output_path):
+            logger.info(f"YouTube Short compiled successfully: {output_path}")
+            return output_path
+        else:
+            logger.error("Failed to create output video")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error compiling YouTube Short: {str(e)}")
+        return None
+
+    finally:
+        # Clean up
+        for file in scene_files:
+            try:
+                os.remove(file)
+            except Exception as e:
+                logger.warning(f"Error removing file {file}: {str(e)}")
+
+        try:
+            if os.path.exists(concat_file):
+                os.remove(concat_file)
+            if os.path.exists(subtitle_file):
+                os.remove(subtitle_file)
+        except Exception as e:
+            logger.warning(f"Error removing temporary files: {str(e)}")
+
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            logger.warning(f"Error removing temporary directory {temp_dir}: {str(e)}")
+            
+def apply_effects_to_image(image_path: str, temp_dir: str, scene_number: int, duration: float) -> str:
+    """Applies effects to the generated image and creates a video scene."""
+    try:
+        processed_path = os.path.join(temp_dir, f"processed_scene_{scene_number}.mp4")
+        # Apply a zoom effect to the image
+        ffmpeg_command = [
+            'ffmpeg', '-y',
+            '-loop', '1',
+            '-i', image_path,
+            '-t', str(duration),
+            '-filter_complex', f'zoompan=z=\'min(zoom+0.0015,1.5)\':d={duration*30}:s={YOUTUBE_SHORT_RESOLUTION[0]}x{YOUTUBE_SHORT_RESOLUTION[1]}',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', '30',
+            processed_path
+        ]
+        subprocess.run(ffmpeg_command, check=True)
+        return processed_path
+    except Exception as e:
+        logger.error(f"Error applying effects to generated image for scene {scene_number}: {str(e)}")
+        return None
+    
+def create_video_from_image(image_path: str, temp_dir: str, scene_number: int, duration: float) -> str:
+    """Creates a video scene from a static image."""
+    try:
+        processed_path = os.path.join(temp_dir, f"processed_scene_{scene_number}.mp4")
+        subprocess.run(['ffmpeg', '-y', '-loop', '1', '-i', image_path, '-t', str(duration),
+                        '-r', '30',
+                        '-vf', f'scale={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}:force_original_aspect_ratio=increase,crop={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}',
+                        '-c:v', 'libx264', '-preset', 'ultrafast', '-an', processed_path],
+                       check=True)
+        return processed_path
+    except Exception as e:
+        logger.error(f"Error creating video from image for scene {scene_number}: {str(e)}")
+        return None
+
+def clean_text_for_tts(text: str) -> str:
+    """
+    Cleans the text for TTS by removing or replacing unwanted characters.
+    Removes asterisks, unnecessary punctuation, and extra whitespace.
+    """
+    # Remove asterisks
+    text = text.replace('*', '')
+    # Remove any undesired punctuation or symbols
+    text = re.sub(r'[^\w\s.,!?\'"]', '', text)
+    # Replace multiple punctuation marks with a single one
+    text = re.sub(r'([.!?])\1+', r'\1', text)
+    # Remove extra whitespace
+    text = ' '.join(text.split())
+    return text
 
 def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
     """Generates per-scene voiceover from scene narrations using tiktokvoice."""
@@ -962,13 +1110,17 @@ def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
         logger.error("No scenes provided for voiceover generation.")
         return False
 
+    logger.info(f"Total number of scenes: {len(scenes)}")
+
     temp_dir = tempfile.mkdtemp()
     audio_segments = []
     try:
         for i, scene in enumerate(scenes):
             text = scene.get('narration_text', '').strip()
-            if not text:
+            if not text or text.lower() == 'none':
                 continue
+            # Clean up the text to remove unwanted punctuation or characters
+            text = clean_text_for_tts(text)
             scene_audio_file = os.path.join(temp_dir, f"scene_{i}.mp3")
             logger.info(f"Generating voiceover for scene {i}")
             tts(text=text, voice="en_uk_003", filename=scene_audio_file)
@@ -1003,16 +1155,13 @@ def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
             logger.warning(f"Error removing temporary directory {temp_dir}: {str(e)}")
 
 def generate_subtitles(scenes: List[Dict[str, Any]], output_file: str, audio_file: str) -> bool:
-    """
-    Generates subtitles synchronized word by word using Gentle.
-    """
     try:
         temp_dir = tempfile.mkdtemp()
         input_text_file = os.path.join(temp_dir, "input_text.txt")
         with open(input_text_file, "w", encoding="utf-8") as f:
             for scene in scenes:
                 text = scene.get('narration_text', '').replace('\n', ' ').strip()
-                if text:
+                if text and text.lower() != 'none, no voiceover, no subtitles, just music':
                     f.write(text + " ")
 
         # Align using Gentle
@@ -1029,8 +1178,6 @@ def generate_subtitles(scenes: List[Dict[str, Any]], output_file: str, audio_fil
         logger.error(f"Error generating subtitles: {str(e)}")
         return False
 
-
-
 def calculate_scene_durations(scenes: List[Dict[str, Any]], audio_segments: List[AudioSegment]) -> List[float]:
     """
     Calculates the duration of each scene based on the actual duration of the corresponding narration audio.
@@ -1043,192 +1190,67 @@ def calculate_scene_durations(scenes: List[Dict[str, Any]], audio_segments: List
         duration = len(segment) / 1000  # Convert milliseconds to seconds
         scene_durations.append(duration)
     return scene_durations
-
-
-def compile_youtube_short(scenes: List[Dict[str, Any]], audio_file: str) -> str:
-    """Compiles the YouTube Short using ffmpeg."""
-    if not scenes:
-        logger.error("No scenes were generated. Cannot compile YouTube Short.")
-        return None
-
-    temp_dir = tempfile.mkdtemp()
-    scene_files = []
-    subtitle_file = os.path.join(temp_dir, "subtitles.srt")
-    concat_file = os.path.join(temp_dir, 'concat.txt')
-    output_path = os.path.join(os.getcwd(), "youtube_short.mp4")
-
-    try:
-        if not generate_voiceover(scenes, audio_file):
-            raise Exception("Failed to generate voiceover")
-
-        if not generate_subtitles(scenes, subtitle_file, audio_file):
-            raise Exception("Failed to generate subtitles")
-
-        total_video_duration = 0.0
-
-        for i, scene in enumerate(scenes):
-            duration = scene.get('adjusted_duration', scene.get('audio_duration', DEFAULT_SCENE_DURATION))
-            logger.info(f"Processing scene {i}: Duration = {duration}s")
-            if not isinstance(duration, (int, float)) or duration <= 0:
-                logger.warning(f"Scene {i} has invalid duration ({duration}), skipping")
-                continue
-
-            processed_path = None
-            try:
-                if 'video_path' in scene and os.path.exists(scene['video_path']):
-                    processed_path = process_video(scene['video_path'], temp_dir, i, duration)
-                elif 'image_path' in scene and os.path.exists(scene['image_path']):
-                    processed_path = create_video_from_image(scene['image_path'], temp_dir, i, duration)
-                else:
-                    # Fallback scene creation
-                    processed_path = create_fallback_scene(temp_dir, i, duration, scene.get('narration_text', ''))
-
-                if processed_path and os.path.exists(processed_path):
-                    scene_files.append(processed_path)
-                    total_video_duration += duration
-                else:
-                    logger.error(f"Failed to process media for scene {i}")
-            except Exception as e:
-                logger.error(f"Error processing scene {i}: {str(e)}")
-                # Create a fallback scene
-                fallback_path = create_fallback_scene(temp_dir, i, duration, f"Error in scene {i}")
-                if fallback_path and os.path.exists(fallback_path):
-                    scene_files.append(fallback_path)
-                    total_video_duration += duration
-
-        # Verify total durations
-        audio = AudioSegment.from_mp3(audio_file)
-        total_audio_duration = audio.duration_seconds  # Provides float value in seconds
-        logger.info(f"Total video duration: {total_video_duration}s")
-        logger.info(f"Total audio duration: {total_audio_duration}s")
-        if abs(total_video_duration - total_audio_duration) > 0.1:
-            logger.warning("Total video duration does not match total audio duration.")
-            # Adjust scene durations proportionally
-            scaling_factor = total_audio_duration / total_video_duration
-            logger.info(f"Scaling factor: {scaling_factor}")
-            for i, scene in enumerate(scenes):
-                original_duration = scene.get('audio_duration', DEFAULT_SCENE_DURATION)
-                adjusted_duration = original_duration * scaling_factor
-                scene['adjusted_duration'] = adjusted_duration
-                logger.info(f"Scene {i}: Original duration = {original_duration}s, Adjusted duration = {adjusted_duration}s")
-
-
-        # Create concat.txt file
-        with open(concat_file, 'w') as f:
-            for file in scene_files:
-                f.write(f"file '{file}'\n")
-
-        with open(concat_file, 'r') as f:
-            concat_contents = f.read()
-            logger.info(f"Contents of concat file:\n{concat_contents}")
-
-        # Use FFmpeg to concatenate video scenes
-        ffmpeg_command = [
-            'ffmpeg', '-y',
-            '-f', 'concat', '-safe', '0', '-i', concat_file,
-            '-i', audio_file,
-            '-r', '30',
-            '-vf', f"subtitles='{subtitle_file}':force_style='FontSize={SUBTITLE_FONT_SIZE},Alignment={SUBTITLE_ALIGNMENT},"
-            f"OutlineColour={SUBTITLE_OUTLINE_COLOR},BorderStyle={SUBTITLE_BORDER_STYLE}'",
-            '-map', '0:v',
-            '-map', '1:a',
-            '-c:v', 'libx264', '-preset', 'ultrafast',
-            '-c:a', 'aac', '-shortest',
-            '-vsync', '2',  # Add this option to ensure frame rate consistency
-            output_path
-        ]
-        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_command)}")
-        subprocess.run(ffmpeg_command, check=True)
-
-        if os.path.exists(output_path):
-            logger.info(f"YouTube Short compiled successfully: {output_path}")
-            return output_path
-        else:
-            logger.error("Failed to create output video")
-            return None
-
-    except Exception as e:
-        logger.error(f"Error compiling YouTube Short: {str(e)}")
-        return None
-
-    finally:
-        # Clean up
-        for file in scene_files:
-            try:
-                os.remove(file)
-            except Exception as e:
-                logger.warning(f"Error removing file {file}: {str(e)}")
-
-        try:
-            if os.path.exists(concat_file):
-                os.remove(concat_file)
-            if os.path.exists(subtitle_file):
-                os.remove(subtitle_file)
-            # if os.path.exists(audio_file):  # Don't remove audio_file, it's passed from outside
-            #     os.remove(audio_file)
-        except Exception as e:
-            logger.warning(f"Error removing temporary files: {str(e)}")
-
-        try:
-            shutil.rmtree(temp_dir)
-        except Exception as e:
-            logger.warning(f"Error removing temporary directory {temp_dir}: {str(e)}")
-
-
-def process_video(video_path: str, temp_dir: str, scene_number: int, duration: float) -> str:
-    """Processes a video scene to fit YouTube Short format."""
+            
+def process_video(video_path: str, temp_dir: str, scene_number: int, duration: float) -> Optional[str]:
     try:
         processed_path = os.path.join(temp_dir, f"processed_scene_{scene_number}.mp4")
         duration_str = str(duration)
         logger.info(f"Processing video for scene {scene_number}: Duration = {duration_str}s")
         ffmpeg_command = [
-            'ffmpeg', '-y', '-i', video_path, '-t', duration_str,
+            'ffmpeg', '-y',
+            '-i', video_path,
+            '-t', duration_str,
+            '-vf', f'scale={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}:force_original_aspect_ratio=increase,crop={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}',
+            '-c:v', 'libx264',
+            '-preset', 'fast',
             '-r', '30',
-            '-vf', f'scale={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}'
-                   f':force_original_aspect_ratio=increase,crop={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}',
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-an', processed_path
+            '-an',
+            processed_path
         ]
         subprocess.run(ffmpeg_command, check=True)
         if os.path.exists(processed_path):
             logger.info(f"Processed video saved: {processed_path}")
+            return processed_path
         else:
             logger.error(f"Processed video not found: {processed_path}")
             return None
-        
-        return processed_path
     except Exception as e:
         logger.error(f"Error processing video for scene {scene_number}: {str(e)}")
         return None
-
-
-def create_video_from_image(image_path: str, temp_dir: str, scene_number: int, duration: float) -> str:
-    """Creates a video scene from a static image."""
-    try:
-        processed_path = os.path.join(temp_dir, f"processed_scene_{scene_number}.mp4")
-        subprocess.run(['ffmpeg', '-y', '-loop', '1', '-i', image_path, '-t', str(duration),
-                        '-r', '30',
-                        '-vf', f'scale={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}:force_original_aspect_ratio=increase,crop={YOUTUBE_SHORT_RESOLUTION[0]}:{YOUTUBE_SHORT_RESOLUTION[1]}',
-                        '-c:v', 'libx264', '-preset', 'ultrafast', '-an', processed_path],
-                       check=True)
-        return processed_path
-    except Exception as e:
-        logger.error(f"Error creating video from image for scene {scene_number}: {str(e)}")
-        return None
-
-
+    
 def create_fallback_scene(temp_dir: str, scene_number: int, duration: float, text: str) -> str:
     """Creates a fallback scene with a colored background and text."""
     try:
         fallback_path = os.path.join(temp_dir, f"fallback_scene_{scene_number}.mp4")
-        # Make the fallback more informative by including the scene number and error message
-        wrapped_text = textwrap.wrap(f"Scene {scene_number}: {text}", width=40)  # Wrap long text
-        text_overlay = "\\N".join(wrapped_text)  # Join lines with newline character for ffmpeg
-        subprocess.run(['ffmpeg', '-y', '-f', 'lavfi',
-                        '-i', f'color=c={FALLBACK_SCENE_COLOR}:s={YOUTUBE_SHORT_RESOLUTION[0]}x{YOUTUBE_SHORT_RESOLUTION[1]}:d={duration}', '-vf',
-                        f"drawtext=fontfile={FALLBACK_SCENE_FONT_FILE}: fontsize={FALLBACK_SCENE_FONT_SIZE}: fontcolor={FALLBACK_SCENE_TEXT_COLOR}: box=1: boxcolor={FALLBACK_SCENE_BOX_COLOR}: boxborderw={FALLBACK_SCENE_BOX_BORDER_WIDTH}: x=(w-tw)/2: y=(h-th)/2: text='{text_overlay}'",
-                        '-c:v', 'libx264', '-preset', 'ultrafast', '-an', fallback_path],
-                       check=True)
+        # Escape single quotes and other special characters in the text
+        escaped_text = text.replace("'", "'\\''").replace(':', '\\:')
+        
+        ffmpeg_command = [
+            'ffmpeg', '-y', '-f', 'lavfi',
+            '-i', f'color=c={FALLBACK_SCENE_COLOR}:s={YOUTUBE_SHORT_RESOLUTION[0]}x{YOUTUBE_SHORT_RESOLUTION[1]}:d={duration}',
+            '-vf', f"drawtext=fontfile={FALLBACK_SCENE_FONT_FILE}:fontsize={FALLBACK_SCENE_FONT_SIZE}:"
+                   f"fontcolor={FALLBACK_SCENE_TEXT_COLOR}:box=1:boxcolor={FALLBACK_SCENE_BOX_COLOR}:"
+                   f"boxborderw={FALLBACK_SCENE_BOX_BORDER_WIDTH}:x=(w-tw)/2:y=(h-th)/2:text='{escaped_text}'",
+            '-c:v', 'libx265', '-preset', 'ultrafast', '-an',
+            fallback_path
+        ]
+        
+        # Log the full ffmpeg command
+        logger.debug(f"Fallback scene FFmpeg command: {' '.join(ffmpeg_command)}")
+        
+        # Run ffmpeg command and capture output
+        result = subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
+        
+        # Log ffmpeg output
+        logger.debug(f"Fallback scene FFmpeg stdout:\n{result.stdout}")
+        logger.debug(f"Fallback scene FFmpeg stderr:\n{result.stderr}")
+        
         return fallback_path
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error creating fallback scene {scene_number}: {str(e)}")
+        logger.error(f"FFmpeg stdout:\n{e.stdout}")
+        logger.error(f"FFmpeg stderr:\n{e.stderr}")
+        return None
     except Exception as e:
         logger.error(f"Error creating fallback scene {scene_number}: {str(e)}")
         return None
@@ -1251,6 +1273,16 @@ def extract_selected_title(selection_output: str) -> str:
     except Exception as e:
         logger.error(f"Error extracting selected title: {str(e)}")
         return selection_output.strip()
+    
+def get_audio_duration(audio_file: str) -> float:
+    try:
+        result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audio_file], capture_output=True, text=True)
+        return float(result.stdout)
+    except Exception as e:
+        logger.error(f"Error getting audio duration: {str(e)}")
+        return 0.0
+    
+   
     
 # Streamlit app
 def main():
@@ -1319,6 +1351,7 @@ async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int
     desc_gen_node = Node(agent=DescriptionGenerationAgent())
     hashtag_tag_node = Node(agent=HashtagAndTagGenerationAgent())
     script_gen_node = Node(agent=VideoScriptGenerationAgent())
+    image_gen_node = Node(agent=ImageGenerationAgent()) 
     storyboard_gen_node = Node(agent=StoryboardGenerationAgent())
 
     # Add nodes to graph
@@ -1328,7 +1361,9 @@ async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int
     graph.add_node(desc_gen_node)
     graph.add_node(hashtag_tag_node)
     graph.add_node(script_gen_node)
+    graph.add_node(image_gen_node) 
     graph.add_node(storyboard_gen_node)
+
 
     # Create and add edges
     graph.add_edge(Edge(recent_events_node, title_gen_node))  # Use the graph instance
@@ -1336,7 +1371,9 @@ async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int
     graph.add_edge(Edge(title_select_node, desc_gen_node))
     graph.add_edge(Edge(desc_gen_node, hashtag_tag_node))
     graph.add_edge(Edge(hashtag_tag_node, script_gen_node))
-    graph.add_edge(Edge(script_gen_node, storyboard_gen_node))
+    graph.add_edge(Edge(script_gen_node, image_gen_node))
+    graph.add_edge(Edge(image_gen_node, storyboard_gen_node))
+
 
     logger.info(f"Running workflow for topic {topic} and time frame {time_frame}")
     # Execute workflow
@@ -1344,61 +1381,132 @@ async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int
     logger.info(f"Starting workflow from node: {current_node.agent.name}")
     input_data = {"topic": topic, "time_frame": time_frame}
     results = {}
+    
+    # Step 1: Recent Events Research Agent
+    input_data = {"topic": topic, "time_frame": time_frame}
     try:
-        # Step 1: Recent Events Research Agent
-        input_data = {"topic": topic, "time_frame": time_frame}
         research_result = await recent_events_node.process(input_data)
         results[recent_events_node.agent.name] = research_result
+    except Exception as e:
+        logger.error(f"Error in RecentEventsResearchAgent: {str(e)}")
+        results["Error"] = f"RecentEventsResearchAgent failed: {str(e)}"
+        return results
 
-        # Step 2: Title Generation Agent
+    # Step 2: Title Generation Agent
+    try:
         title_gen_result = await title_gen_node.process(research_result)
         results[title_gen_node.agent.name] = title_gen_result
+    except Exception as e:
+        logger.error(f"Error in TitleGenerationAgent: {str(e)}")
+        results["Error"] = f"TitleGenerationAgent failed: {str(e)}"
+        return results
 
-        # Step 3: Title Selection Agent
+    # Step 3: Title Selection Agent
+    try:
         title_select_result = await title_select_node.process(title_gen_result)
         results[title_select_node.agent.name] = title_select_result
+    except Exception as e:
+        logger.error(f"Error in TitleSelectionAgent: {str(e)}")
+        results["Error"] = f"TitleSelectionAgent failed: {str(e)}"
+        return results
 
-        # Extract the selected title from the title selection result
-        selected_title = extract_selected_title(title_select_result)
-        results["Selected Title"] = selected_title
+    # Extract the selected title from the title selection result
+    selected_title = extract_selected_title(title_select_result)
+    results["Selected Title"] = selected_title
 
-        # Step 4: Description Generation Agent
+    # Step 4: Description Generation Agent
+    try:
         desc_gen_result = await desc_gen_node.process(selected_title)
         results[desc_gen_node.agent.name] = desc_gen_result
+    except Exception as e:
+        logger.error(f"Error in DescriptionGenerationAgent: {str(e)}")
+        results["Error"] = f"DescriptionGenerationAgent failed: {str(e)}"
+        return results
 
-        # Step 5: Hashtag and Tag Generation Agent
+    # Step 5: Hashtag and Tag Generation Agent
+    try:
         hashtag_tag_result = await hashtag_tag_node.process(selected_title)
         results[hashtag_tag_node.agent.name] = hashtag_tag_result
+    except Exception as e:
+        logger.error(f"Error in HashtagAndTagGenerationAgent: {str(e)}")
+        results["Error"] = f"HashtagAndTagGenerationAgent failed: {str(e)}"
+        return results
 
-        # Step 6: Video Script Generation Agent
+    # Step 6: Video Script Generation Agent
+    try:
         script_gen_input = {"research": research_result}
         script_gen_result = await script_gen_node.process(script_gen_input)
         results[script_gen_node.agent.name] = script_gen_result
-
-        # Step 7: Storyboard Generation Agent
-        storyboard_gen_input = {"script": script_gen_result}
-        storyboard_gen_result = await storyboard_gen_node.process(storyboard_gen_input)
-        results[storyboard_gen_node.agent.name] = storyboard_gen_result
-
-        # Proceed to generate voiceover and compile video
-        temp_dir = tempfile.mkdtemp()
-        audio_file = os.path.join(temp_dir, "voiceover.mp3")
-        if not generate_voiceover(storyboard_gen_result, audio_file):
-            raise Exception("Failed to generate voiceover")
-        output_path = compile_youtube_short(scenes=storyboard_gen_result, audio_file=audio_file)
-        if output_path:
-            print(f"YouTube Short saved as '{output_path}'")
-            results["Output Video Path"] = output_path
-        else:
-            print("Failed to compile YouTube Short")
-            results["Output Video Path"] = None
-
     except Exception as e:
-        logger.error(f"Error in YouTube Shorts workflow: {str(e)}")
-        results["Error"] = str(e)
+        logger.error(f"Error in VideoScriptGenerationAgent: {str(e)}")
+        results["Error"] = f"VideoScriptGenerationAgent failed: {str(e)}"
+        return results
+
+    # Step 7: Storyboard Generation Agent
+    logger.info("Executing Storyboard Generation Agent")
+    storyboard_gen_input = {
+        "script": script_gen_result,
+    }
+    storyboard_gen_result = await storyboard_gen_node.process(storyboard_gen_input)
+    if storyboard_gen_result is None:
+        raise ValueError("Storyboard Generation Agent returned None")
+    results[storyboard_gen_node.agent.name] = storyboard_gen_result
+
+    # Step 8: Image Generation Agent
+    logger.info("Executing Image Generation Agent")
+    image_gen_input = {"scenes": storyboard_gen_result}
+    image_gen_result = await image_gen_node.process(image_gen_input)
+    if image_gen_result is None:
+        raise ValueError("Image Generation Agent returned None")
+    results[image_gen_node.agent.name] = image_gen_result
+
+    # Update storyboard with generated images and calculate scene durations
+    total_duration = 0
+    for scene, image_result in zip(storyboard_gen_result, image_gen_result):
+        if image_result is not None and 'image_path' in image_result:
+            scene['image_path'] = image_result['image_path']
+            # Calculate scene duration based on word count or use a default duration
+            word_count = len(scene.get('script', '').split())
+            scene['duration'] = max(word_count * 0.5, 3.0)  # Assume 0.5 seconds per word, minimum 3 seconds
+            total_duration += scene['duration']
+        else:
+            logger.warning(f"No image generated for scene {scene.get('number', 'unknown')}")
+
+    # Adjust scene durations to match target video length
+    target_duration = video_length / 1000  # Convert video_length to seconds
+    duration_factor = target_duration / total_duration
+    for scene in storyboard_gen_result:
+        scene['adjusted_duration'] = scene['duration'] * duration_factor
+    
+    logger.info(f"Target duration: {target_duration} seconds")
+    logger.info(f"Total calculated duration: {total_duration} seconds")
+    logger.info(f"Duration factor: {duration_factor}")
+
+    # Filter out scenes without images
+    valid_scenes = [scene for scene in storyboard_gen_result if 'image_path' in scene]
+
+    if not valid_scenes:
+        raise ValueError("No valid scenes with images remaining")
+
+    # Log scene information
+    for i, scene in enumerate(valid_scenes):
+        logger.info(f"Scene {i}: Duration = {scene['duration']:.2f}s, Adjusted Duration = {scene['adjusted_duration']:.2f}s, Image = {scene['image_path']}")
+
+    # Proceed to generate voiceover and compile video
+    temp_dir = tempfile.mkdtemp()
+    audio_file = os.path.join(temp_dir, "voiceover.mp3")
+    if not generate_voiceover(valid_scenes, audio_file):
+        raise Exception("Failed to generate voiceover")
+    
+    output_path = compile_youtube_short(scenes=valid_scenes, audio_file=audio_file)
+    if output_path:
+        print(f"YouTube Short saved as '{output_path}'")
+        results["Output Video Path"] = output_path
+    else:
+        print("Failed to compile YouTube Short")
+        results["Output Video Path"] = None
 
     return results
 
 if __name__ == "__main__":
     main()
-
