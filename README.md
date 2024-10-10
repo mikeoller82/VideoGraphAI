@@ -20,7 +20,7 @@
 
 ## Overview
 
-VideoGraphAI is a Streamlit-based application designed to streamline the creation of YouTube Shorts. Leveraging graph agents with Groq's API Endpoints ( you can honestly change it to whatevr endpoint you want with OpenAI Compatibilty  would work all the sam maybe better) technologies, this tool handles everything from researching recent events with realtime web search capabilties thru Tavily Sarch API to compiling the final video from pexels and pixabay videos with voiceovers from TikTok and subtitles with Gentle. Whether you're a content creator looking to scale your production or an enthusiast interested in automated video generation, VideoGraphAI provides a starting point as its very beta, I beg for contributions and  solutions.
+VideoGraphAI is a Streamlit-based application designed to streamline the creation of YouTube Shorts. Leveraging graph agents with Groq's API Endpoints ( you can honestly change it to whatevr endpoint you want with OpenAI Compatibilty  would work all the sam maybe better) technologies, this tool handles everything from researching recent events with realtime web search capabilties thru Tavily Sarch API to compiling the final video from from fluxschnell images with voiceovers from TikTok and subtitles with Gentle. Whether you're a content creator looking to scale your production or an enthusiast interested in automated video generation, VideoGraphAI provides a starting point as its very beta, I beg for contributions and  solutions.
 
 ## Features
 
@@ -104,9 +104,9 @@ VideoGraphAI is a Streamlit-based application designed to streamline the creatio
 
    ```env
    GROQ_API_KEY=your_groq_api_key
-   PEXELS_API_KEY=your_pexels_api_key
+   BFL_API_KEY=your_black_forest_labs_api_key
+   TOGETHER_API_KEY=your_together_api_key
    TAVILY_API_KEY=your_tavily_api_key
-   PIXABAY_API_KEY=your_pixabay_api_key
    TIKTOK_SESSION_ID=your_tiktok_session_id
    (get yout tik tok session id byt going to tiktok, right click anywhere , go to inspect source , then click on arrows that extends menu at top , click applications, search for session id..super simple)
    ```
