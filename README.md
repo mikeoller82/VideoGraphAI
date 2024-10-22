@@ -187,6 +187,7 @@ We welcome contributions! Please follow these steps:
   (https://www.together.ai/)
   
 - **Tavily**: Real-time search capabilities
+  (https://tavily.com/#api)
 
 ## 📄 License
 
