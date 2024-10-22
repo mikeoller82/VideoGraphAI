@@ -29,7 +29,7 @@ VideoGraphAI is a Streamlit-based application designed to streamline the creatio
 - **Automated Research**: Utilizes graph agents to gather and analyze recent events related to your chosen topic.
 - **AI-Powered Content Generation**: Employs multiple AI agents for crafting titles, descriptions, hashtags, scripts, and storyboards.
 - **Media Integration**: Searches and integrates relevant videos and images from Pexels and Pixabay.
-- **Voiceover and Subtitles**: Generates synchronized voiceovers and subtitles using Gentle and TikTokVoice.
+- **Voiceover and Subtitles**: Generates synchronized voiceovers and subtitles using Gentle and F5-TTS.
 - **Video Compilation**: Assembles video clips, images, voiceovers, and subtitles into a polished YouTube Short using FFmpeg.
 - **Error Handling and Logging**: Comprehensive logging for monitoring and debugging.
 
@@ -54,6 +54,9 @@ VideoGraphAI is a Streamlit-based application designed to streamline the creatio
 - **FFmpeg**: Ensure FFmpeg is installed and accessible in your system's PATH.
 - **Docker** (optional but recommended for running the Gentle server)
 - **Gentle Server**: For audio-text alignment.
+- **F5-TTS** : (Voiceover)
+- **GROQ API** (LLM's)
+- **TOGETHER AI API** (images for scenes)
 
 ## Installation
 
