@@ -70,20 +70,26 @@ VideoGraphAI is a Streamlit-based application designed to streamline the creatio
    cd videographai
    ```
 
-2. **Create a Virtual Environment**
+2. **Create a Virtual Environment**(I recommend Conda but you can figure out how to do that yourself)
+    ```bash
+    conda create -n videographai python=3.8 pip
+    conda activate videographai
+     ```
+
+     or
 
    ```bash
    python3 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install Dependencies**
+4. **Install Dependencies**
 
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Install and Configure FFmpeg**
+5. **Install and Configure FFmpeg**
 
    - **Ubuntu/Debian**
 
@@ -102,6 +108,16 @@ VideoGraphAI is a Streamlit-based application designed to streamline the creatio
 
      - Download FFmpeg from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html).
      - Extract and add the `bin` folder to your system's PATH.
+    
+6. ** You have to git clone inside your working directory the F5-TTS model which is open source , read threw their docs, super straightforward imo you shouldnt have issues**
+   ```bash
+   git clone https://github.com/SWivid/F5-TTS.git
+   cd F5-TTS
+   pip install -r requirementts.txt
+   
+   # Follow their docs for other steps which iis install torch and cuda no biggie
+   cd ..
+   ```
 
 ## Configuration
 
@@ -114,8 +130,10 @@ VideoGraphAI is a Streamlit-based application designed to streamline the creatio
    BFL_API_KEY=your_black_forest_labs_api_key
    TOGETHER_API_KEY=your_together_api_key
    TAVILY_API_KEY=your_tavily_api_key
-   TIKTOK_SESSION_ID=your_tiktok_session_id
-   (get yout tik tok session id byt going to tiktok, right click anywhere , go to inspect source , then click on arrows that extends menu at top , click applications, search for session id..super simple)
+   
+   #TIKTOK_SESSION_ID=your_tiktok_session_id
+   #(get yout tik tok session id byt going to tiktok, right click anywhere , go to inspect source , then click on arrows that extends menu at top , click applications, search for session id..super simple)
+   # TTS has been updated to use F5-TTS so the tiktoksession is no longer needed
    ```
 
    **Note**: Replace `your_*` with your actual API keys. Ensure that the `.env` file is kept secure and is not committed to version control.
