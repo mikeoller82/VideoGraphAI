@@ -21,7 +21,7 @@
 
 ## Overview
 
-VideoGraphAI is a Streamlit-based application designed to streamline the creation of YouTube Shorts. Leveraging graph agents with Groq's API Endpoints ( you can honestly change it to whatevr endpoint you want with OpenAI Compatibilty  would work all the sam maybe better) technologies, this tool handles everything from researching recent events with realtime web search capabilties thru Tavily Sarch API to compiling the final video. Uses TogetherAI API for FLUX.schnell images, voiceovers from F5-TTS and subtitles with Gentle. Whether you're a content creator looking to scale your production or an enthusiast interested in automated video generation, VideoGraphAI provides a starting point as its very beta, I beg for contributions and  solutions.
+VideoGraphAI is a Streamlit-based application designed to streamline the creation of YouTube Shorts. Leveraging graph agents with Groq's API Endpoints ( you can honestly change it to whatevr endpoint you want with OpenAI Compatibilty  would work all the sam maybe better) technologies, this tool handles everything from researching recent events with realtime web search capabilties thru Tavily Sarch API to compiling the final video. Uses TogetherAI API for FLUX.schnell images, voiceovers from F5-TTS and subtitles with Gentle. Whether you're a content creator looking to scale your production or an enthusiast interested in automated video generation, VideoGraphAI provides a starting point as its very beta, I beg for contributions and  solutions.#VideoAI #ContentCreation #YouTubeAutomation #AITools #OpenSourceAI #StreamlitApp #PythonDev #ContentCreator #AIVideo #AutomatedContent
 
 ## Features
 
