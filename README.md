@@ -219,7 +219,7 @@ Contributions are welcome! Please follow these steps:
 
 ## Acknowledgements
 
-1. GROQ (LLM's for Agents)
+**1. GROQ (LLM's for Agents)**
 
 <a href="https://groq.com" target="_blank" rel="noopener noreferrer">
   <img
@@ -228,7 +228,8 @@ Contributions are welcome! Please follow these steps:
   />
 </a>
 
-2. F5-TTS (Narration Voiceovers)
+**2. F5-TTS (Narration Voiceovers)**
+
 @article{chen-etal-2024-f5tts,
       title={F5-TTS: A Fairytaler that Fakes Fluent and Faithful Speech with Flow Matching}, 
       author={Yushen Chen and Zhikang Niu and Ziyang Ma and Keqi Deng and Chunhui Wang and Jian Zhao and Kai Yu and Xie Chen},
@@ -236,7 +237,7 @@ Contributions are welcome! Please follow these steps:
       year={2024},
 }
 
-3. TogetherAI (Free Image genrations for FLUX.schnell model that creates images for scenes)
+**3.TogetherAI (Free Image genrations for FLUX.schnell model that creates images for scenes)**
 https://github.com/togethercomputer
 
 
