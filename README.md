@@ -11,7 +11,11 @@
 
 An open-source AI-powered YouTube Shorts automation tool that revolutionizes content creation using graph-based agents and state-of-the-art AI technologies.
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Contributing](#contributing) • [License](#license)
+[Features](#-key-features) • 
+[Installation](#-installation) • 
+[Usage](#-usage) • 
+[Contributing](#-contributing) • 
+[License](#-license)
 
 </div>
 
