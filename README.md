@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.0%2B-red.svg)
-[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/yourusername/VideoGraphAI/issues)
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/mikeoller82/VideoGraphAI/issues)
 ![Status](https://img.shields.io/badge/Status-Beta-yellow.svg)
 
 An open-source AI-powered YouTube Shorts automation tool that revolutionizes content creation using graph-based agents and state-of-the-art AI technologies.
