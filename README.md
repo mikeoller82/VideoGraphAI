@@ -68,7 +68,7 @@ VideoGraphAI streamlines the creation of YouTube Shorts using advanced AI techno
 ### 1. Clone Repository
 ```bash
 git clone https://github.com/mikeoller82/VideoGraphAI.git
-cd videographai
+cd VideoGraphAI
 ```
 
 ### 2. Environment Setup
