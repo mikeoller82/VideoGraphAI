@@ -1,7 +1,5 @@
 # VideoGraphAI: AI-Powered YouTube Shorts Generator
 
-
-
 https://github.com/user-attachments/assets/46659357-3ea1-4159-9d10-f3a0594828fd
 
 
@@ -221,6 +219,31 @@ Contributions are welcome! Please follow these steps:
    ```
 
 5. **Open a Pull Request**
+
+
+## Acknowledgements
+
+1. GROQ (LLM's for Agents)
+
+<a href="https://groq.com" target="_blank" rel="noopener noreferrer">
+  <img
+    src="https://groq.com/wp-content/uploads/2024/03/PBG-mark1-color.svg"
+    alt="Powered by Groq for fast inference."
+  />
+</a>
+
+2. F5-TTS (Narration Voiceovers)
+@article{chen-etal-2024-f5tts,
+      title={F5-TTS: A Fairytaler that Fakes Fluent and Faithful Speech with Flow Matching}, 
+      author={Yushen Chen and Zhikang Niu and Ziyang Ma and Keqi Deng and Chunhui Wang and Jian Zhao and Kai Yu and Xie Chen},
+      journal={arXiv preprint arXiv:2410.06885},
+      year={2024},
+}
+
+3. TogetherAI (Free Image genrations for FLUX.schnell model that creates images for scenes)
+https://github.com/togethercomputer
+
+
 
 ## License
 
