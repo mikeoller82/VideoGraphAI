@@ -1,4 +1,18 @@
-# VideoGraphAI: AI-Powered YouTube Shorts Generator
+## VideoGraphAI 🎬
+
+VideoGraphAI is an open-source automation tool that revolutionizes YouTube Shorts creation using AI and graph-based agents. Built with Streamlit, it offers end-to-end video production capabilities from content research to final rendering.
+
+## 🚀 Key Features:
+- Real-time content research using Tavily Search API
+- AI-powered script generation with LLM compatibility (OpenAI, Groq, etc.)
+- Dynamic image generation via TogetherAI (FLUX.schnell)
+- Professional voiceovers using F5-TTS
+- Automated subtitle generation with Gentle
+- Streamlit-based user interface for easy operation
+
+Perfect for content creators, marketers, and AI enthusiasts looking to automate short-form video production. Currently in beta - contributors welcome! 
+
+🤝 Join us in developing the future of AI-driven content creation.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)
@@ -22,16 +36,6 @@
 ## Overview
 
 VideoGraphAI is a Streamlit-based application designed to streamline the creation of YouTube Shorts. Leveraging graph agents with Groq's API Endpoints ( you can honestly change it to whatevr endpoint you want with OpenAI Compatibilty  would work all the sam maybe better) technologies, this tool handles everything from researching recent events with realtime web search capabilties thru Tavily Sarch API to compiling the final video. Uses TogetherAI API for FLUX.schnell images, voiceovers from F5-TTS and subtitles with Gentle. Whether you're a content creator looking to scale your production or an enthusiast interested in automated video generation, VideoGraphAI provides a starting point as its very beta, I beg for contributions and  solutions.#VideoAI #ContentCreation #YouTubeAutomation #AITools #OpenSourceAI #StreamlitApp #PythonDev #ContentCreator #AIVideo #AutomatedContent
-
-## Features
-
-- **User-Friendly Interface**: Easy-to-use Streamlit web application for inputting parameters and generating videos.
-- **Automated Research**: Utilizes graph agents to gather and analyze recent events related to your chosen topic.
-- **AI-Powered Content Generation**: Employs multiple AI agents for crafting titles, descriptions, hashtags, scripts, and storyboards.
-- **Media Integration**: Searches and integrates relevant videos and images from Pexels and Pixabay.
-- **Voiceover and Subtitles**: Generates synchronized voiceovers and subtitles using Gentle and F5-TTS.
-- **Video Compilation**: Assembles video clips, images, voiceovers, and subtitles into a polished YouTube Short using FFmpeg.
-- **Error Handling and Logging**: Comprehensive logging for monitoring and debugging.
 
 ## Workflow
 
