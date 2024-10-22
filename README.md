@@ -184,6 +184,8 @@ We welcome contributions! Please follow these steps:
 }
 ```
 - **TogetherAI**: Image generation via FLUX.schnell model
+  (https://www.together.ai/)
+  
 - **Tavily**: Real-time search capabilities
 
 ## 📄 License
