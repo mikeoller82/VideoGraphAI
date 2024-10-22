@@ -1,9 +1,5 @@
 # VideoGraphAI: AI-Powered YouTube Shorts Generator
 
-https://github.com/user-attachments/assets/46659357-3ea1-4159-9d10-f3a0594828fd
-
-
-
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.0%2B-red.svg)
