@@ -113,9 +113,17 @@ brew install ffmpeg
 git clone https://github.com/SWivid/F5-TTS.git
 cd F5-TTS
 pip install -r requirements.txt
-# Follow F5-TTS documentation for torch and CUDA setup
+# Follow F5-TTS documentation for torch and CUDA setup then all you do is take your sample wav file and put it in /F5-TTS/src/f5_tts/infer/examples/basic
+#  this will be inside your VideoGraphAI directory after you git clone it. then just config toml file either inside F5 there is a basic.toml file but in the functiion
+#  genrate_voicoever is the override toml that will be used so you can just configure it there . Honestly its whatever you prefer then youl be good to go on any voicoever you want just need the a wav file of like 5 seconds to 8 seconds minimal
 cd ..
 ```
+
+### Subtitle Command(Has to be ran bewfore you run the application just one command)
+```bash
+docker run -d -p 8765:8765 lowerquality/gentle
+```
+
 
 ## ⚙️ Configuration
 
