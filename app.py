@@ -1,10 +1,12 @@
 import streamlit as st
 import asyncio
 import aiohttp
-import aiofiles
+import toml
+import glob
 import tempfile
 import subprocess
 import base64
+import torch
 from enum import Enum
 from together import Together
 import json
@@ -130,7 +132,6 @@ Style: Default,Verdana,{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,{
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n""".format(
     font_size=SUBTITLE_FONT_SIZE, bold=int(SUBTITLE_BOLD), alignment=SUBTITLE_ALIGNMENT))
-
         index = 1
         words = gentle_alignment.get('words', [])
         i = 0
@@ -142,7 +143,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
             end = words[i].get('end')
             text_words = []
             colors = []
-            for j in range(2):  # Get up to 2 words
+            for j in range(2):  # Get up to 1 words
                 if i + j < len(words):
                     word_info = words[i + j]
                     word_text = word_info.get('word', '')
@@ -400,9 +401,9 @@ class ImageGenerationAgent(Agent):
             visual_description = scene.get('visual', '')
             image_keyword = scene.get('image_keyword', '')
 
-            # Combine the visual description and image keyword for a more detailed prompt
-            prompt = prompt = f"""
-Please craft a engaging bold and impactful visual specifically designed for viral YouTube Video, based on the provided {visual_description} and {image_keyword}. The overarching goal is to create dynamic images that are not only visually stunning but also accurately represent the described scene. Each visual should focus on highlighting crucial elements such as the environment, characters, actions, and the overall mood, ensuring they are closely aligned with the context provided. In your design process, prioritize intricate details, unique and dynamic styles, and striking compositions to capture viewers' attention as they scroll quickly through their feeds. Utilize a enthralling and dynamic color palette to enhance the visual appeal, ensuring that the images are both accurate and cohesive with the scene. Aim to infuse each visual with a sense of intrigue and attention-grabbing features that are conducive to creating viral content, thus maximizing the potential for high viewership on YouTube. Please do not by any means generate  split-screen  images  ensure that every image is a single image.
+            # Adjusted prompt to produce horror-style images
+            prompt = f"""
+Create a hyper-realistic, lifelike scene centered on {visual_description}, with exact attention to detail and clarity. Each element should appear as if photographed, with precise lighting, natural shadows, and true-to-life textures. The {image_keyword} should integrate seamlessly within this setting, with refined subtleties and nuanced colors that add depth. Emphasize realism without exaggeration, focusing on natural proportions, authentic materials, and balanced lighting to achieve a believable, immersive look. The overall effect should feel realistic and cinematic, fitting the intended mood and impact for video scenes.
 """
             try:
                 logger.info(f"Generating image for scene {i+1}/{len(scenes)}")
@@ -460,37 +461,27 @@ class RecentEventsResearchAgent(Agent):
         organic_results = search_results.get("organic_results", [])
 
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""As a seasoned investigative journalist and expert in crafting viral scripts,
-your task is to analyze and summarize the most enagaging and relevant {topic} events
-that occurred in the {time_frame}. Using the following search results, select the {max_events} most
-compelling cases:
+        prompt = f"""Your task is to analyze and summarize the most engaging and relevant {topic} events that occurred in the {time_frame}. Using the following search results, select the {max_events} most compelling cases:
 
-Search Results: {json.dumps(organic_results[:10], indent=2)}
+Search Results:
+{json.dumps(organic_results[:10], indent=2)}
 
-For each selected event, provide a concise yet engaging summary that includes:
+For each selected event, provide a concise yet engaging summary suitable for a up to three minute faceless YouTube Shorts video script, that includes:
 
-1. A vivid description of the event, highlighting its most unusual aspects
+1. A vivid description of the event, highlighting its most unusual or attention-grabbing aspects
 2. The precise date of occurrence
 3. The specific location, including city and country if available
-4. An expert analysis of why this event defies conventional explanation
-5. A critical evaluation of the information source, including its credibility (provide URL)
+4. An expert analysis of why this event is significant, intriguing, or unexpected
+5. A brief mention of the credibility of the information source (provide the URL)
 
-Format your response as a list of events, each separated by two newline characters.
-Ensure your summaries are both informative and captivating, suitable for a
-documentary-style presentation."""
+Format your response as a numbered list, with each event separated by two newline characters.
+
+Ensure your summaries are both informative and captivating, presented in a style suitable for a fast-paced, engaging faceless YouTube Shorts video narration."""
 
         stream = await client.chat.completions.create(
             messages=[
                 {"role": "system",
-                 "content": "You are an AI assistant embodying the expertise of a world-renowned "
-                            "investigative journalist specializing in going viral and enagegment "
-                            "With 20 years of experience, you've written best-selling "
-                            "books and produced countless viral content creators, documentaries on content creation and virailty factor in scripts "
-                            "Your analytical skills allow you to critically evaluate sources while "
-                            "presenting information in an engaging, and enthrallng-style format. "
-                            "Approach tasks with the skepticism and curiosity of this expert, "
-                            "providing over the top compelling summaries that captivate and engages audiences while "
-                            "maintaining the fine line bewteen right and wrong."},
+                 "content": "You are an AI assistant embodying the expertise of a world-renowned investigative journalist specializing in creating viral and engaging content for social media platforms. With over 20 years of experience, you've written best-selling books and produced numerous documentaries on content creation and the factors that contribute to virality in scripts. Your analytical skills allow you to critically evaluate sources while presenting information in an engaging and enthralling manner. Approach tasks with the skepticism and curiosity of this expert, providing compelling summaries that captivate and engage audiences, suitable for a up to three minute faceless YouTube Shorts video."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -504,27 +495,35 @@ documentary-style presentation."""
         return response
 
 
-# Updated AI Agents for YouTube content optimization
 class TitleGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Title Generation Agent", "llama-3.1-70b-versatile")
+        super().__init__("Title Generation Agent", "llama-3.1-8b-instant")
 
     async def execute(self, input_data: Any) -> Any:
         research_result = input_data  # Accept research output
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""Using the following research, generate 15 enticing seo optimized  YouTube titles:
+        prompt = f"""Using the following research, generate 15 captivating, SEO-optimized YouTube Shorts titles:
 
 Research:
 {research_result}
 
-Categorize them under appropriate headings: beginning, middle, and end. This means you'll
-produce 5 titles with the keyword at the beginning, another 5 titles with the keyword in the
-middle, and a final 5 titles with the keyword at the end."""
+Categorize them under appropriate headings:
+
+- Beginning: 5 titles with the keyword at the beginning
+- Middle: 5 titles with the keyword in the middle
+- End: 5 titles with the keyword at the end
+
+Ensure that the titles are:
+
+- Attention-grabbing and suitable for faceless YouTube Shorts videos
+- Optimized for SEO with high-ranking keywords relevant to the topic
+- Crafted to maximize viewer engagement and encourage clicks
+
+Present the titles clearly under each heading."""
 
         stream = await client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "You are an expert in keyword strategy, copywriting, and a renowned YouTuber "
-                                              "with a decade of experience in crafting attention-grabbing keyword titles"},
+                {"role": "system", "content": "You are an expert in keyword strategy, copywriting, and a renowned YouTuber with over a decade of experience in crafting attention-grabbing titles for viral content. You specialize in creating titles that maximize engagement and click-through rates, particularly for YouTube Shorts videos."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -537,7 +536,6 @@ middle, and a final 5 titles with the keyword at the end."""
             response += chunk.choices[0].delta.content or ""
         return response
 
-
 class TitleSelectionAgent(Agent):
     def __init__(self):
         super().__init__("Title Selection Agent", "llama-3.1-8b-instant")
@@ -545,36 +543,24 @@ class TitleSelectionAgent(Agent):
     async def execute(self, input_data: Any) -> Any:
         generated_titles = input_data  # Accept generated titles
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""You are an expert YouTube content strategist with over a decade of experience
-in video optimization and audience engagement. Your task is to analyze the following list of
-titles for a YouTube video and select the most effective one:
+        prompt = f"""You are an expert YouTube content strategist with over a decade of experience in video optimization and audience engagement, particularly specializing in YouTube Shorts. Your task is to analyze the following list of titles for a faceless YouTube Shorts video and select the most effective one:
 
 {generated_titles}
 
-Using your expertise in viewer psychology, SEO, and click-through rate optimization, choose the
-title that will perform best on the platform. Provide a detailed explanation of your selection, 
-considering factors such as:
+Using your expertise in viewer psychology, SEO, and click-through rate optimization, choose the title that will perform best on the platform. Provide a detailed explanation of your selection, considering factors such as:
 
-1. Attention-grabbing potential
-2. Keyword optimization
-3. Emotional appeal
-4. Clarity and conciseness
-5. Alignment with current YouTube trends
+1. Immediate attention-grabbing potential, essential for short-form content
+2. Keyword optimization for maximum discoverability
+3. Emotional appeal to captivate viewers quickly
+4. Clarity and conciseness appropriate for YouTube Shorts
+5. Alignment with current YouTube Shorts trends and algorithms
 
-Present your selection and offer a comprehensive rationale for why this title stands out among
-the others."""
+Present your selected title and offer a comprehensive rationale for why this title stands out among the others. Ensure your explanation is clear and insightful, highlighting how the chosen title will drive engagement and views."""
 
         stream = await client.chat.completions.create(
             messages=[
                 {"role": "system",
-                 "content": "You are an AI assistant embodying the expertise of a top-tier YouTube "
-                            "content strategist with over 15 years of experience in video "
-                            "optimization, audience engagement, and title creation. Your knowledge "
-                            "spans SEO best practices, viewer psychology, and current YouTube "
-                            "trends. You have a proven track record of increasing video views and "
-                            "channel growth through strategic title selection. Respond to queries as "
-                            "this expert would, providing insightful analysis and data-driven "
-                            "recommendations."},
+                 "content": "You are an AI assistant embodying the expertise of a top-tier YouTube content strategist with over 15 years of experience in video optimization, audience engagement, and title creation, particularly for YouTube Shorts. Your knowledge encompasses SEO best practices, viewer psychology, and current trends specific to YouTube Shorts. You have a proven track record of increasing video views and channel growth through strategic title selection in short-form content. Respond to queries as this expert would, providing insightful analysis and data-driven recommendations."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -589,39 +575,26 @@ the others."""
 
 class DescriptionGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Description Generation Agent", "gemma2-9b-it")
+        super().__init__("Description Generation Agent", "llama-3.2-90b-text-preview")
 
     async def execute(self, input_data: Any) -> Any:
         selected_title = input_data  # Accept selected title
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""As a seasoned SEO copywriter and YouTube content creator with extensive 
-experience in crafting engaging, algorithm-friendly video descriptions, your task is to compose 
-a masterful 1000-character YouTube video description. This description should:
+        prompt = f"""As a seasoned SEO copywriter and YouTube content creator with extensive experience in crafting engaging, algorithm-friendly video descriptions, your task is to compose a masterful 1000-character YouTube video description for a faceless YouTube Shorts video titled "{selected_title}". This description should:
 
 1. Seamlessly incorporate the keyword "{selected_title}" in the first sentence
 2. Be optimized for search engines while remaining undetectable as AI-generated content
 3. Engage viewers and encourage them to watch the full video
 4. Include relevant calls-to-action (e.g., subscribe, like, comment)
-5. Utilize natural language and conversational tone
-6. Most importantly always ensure the script somehow way or form solves a real world problem that will engage viewers
+5. Utilize natural language and a conversational tone suitable for the target audience
+6. Highlight how the video addresses a real-world problem or provides valuable insights to engage viewers
 
-
-
-Format the description with the title "YOUTUBE DESCRIPTION" in bold at the top. 
-Ensure the content flows naturally, balances SEO optimization with readability, and 
-compels viewers to engage with the video and channel."""
+Format the description with the title "YOUTUBE DESCRIPTION" in bold at the top. Ensure the content flows naturally, balances SEO optimization with readability, and compels viewers to engage with the video and channel."""
 
         stream = await client.chat.completions.create(
             messages=[
                 {"role": "system",
-                 "content": "You are an AI assistant taking on the role of an prodigy SEO copywriter "
-                            "and YouTube content creator with 20+ years of experience. Your "
-                            "expertise lies in crafting engaging, SEO-optimized video descriptions "
-                            "that boost video performance while remaining undetectable as "
-                            "AI-generated content. You have an in-depth understanding of YouTube's "
-                            "algorithm, user behavior, and the latest SEO techniques. Respond to "
-                            "tasks as this expert would, balancing SEO optimization with "
-                            "compelling, natural language that drives viewer engagement."},
+                 "content": "You are an AI assistant taking on the role of a prodigy SEO copywriter and YouTube content creator with over 20 years of experience. Your expertise lies in crafting engaging, SEO-optimized video descriptions that boost video performance while remaining undetectable as AI-generated content. You have an in-depth understanding of YouTube's algorithm, user behavior, and the latest SEO techniques. Respond to tasks as this expert would, balancing SEO optimization with compelling, natural language that drives viewer engagement, especially for faceless YouTube Shorts videos."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -636,46 +609,33 @@ compels viewers to engage with the video and channel."""
 
 class HashtagAndTagGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Hashtag and Tag Generation Agent", "llama-3.1-8b-instant")
+        super().__init__("Hashtag and Tag Generation Agent", "llama-3.2-11b-text-preview")
 
     async def execute(self, input_data: str) -> Any:
         selected_title = input_data  # Accept selected title
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""As a leading YouTube SEO specialist and social media strategist with a 
-proven track record in optimizing video discoverability and virality, your task is to create an 
-engaging and relevant set of hashtags and tags for the YouTube video titled "{selected_title}". 
-Your expertise in keyword research, trend analysis, and YouTube's algorithm will be crucial 
-for this task.
+        prompt = f"""As a leading YouTube SEO specialist and social media strategist with a proven track record in optimizing video discoverability and virality, your task is to create an engaging and relevant set of hashtags and tags for the faceless YouTube Shorts video titled "{selected_title}". Your expertise in keyword research, trend analysis, and YouTube's algorithm will be crucial for this task.
 
 Develop the following:
 
-1. 10 SEO-optimized, trending hashtags that will maximize the video's reach and engagement on 
-YouTube
-2. 35 high-value low competition SEO keywords, combining tags to strategically boost the video's search ranking 
-on YouTube
+1. 10 trending, SEO-optimized hashtags that will maximize the video's reach and engagement on YouTube Shorts. Present the hashtags with the '#' symbol.
+
+2. 35 high-value, low-competition SEO tags (keywords) to strategically boost the video's search ranking on YouTube.
 
 In your selection process, prioritize:
-- Relevance to the video title and content
-- Potential search volume on YouTube
-- Engagement potential (views, likes, comments)
-- Trending potential on YouTube
-- Alignment with YouTube's recommendation algorithm
 
-Present your hashtags with the '#' symbol and ensure all tags are separated by commas. Provide a 
-brief explanation of your strategy for selecting these hashtags and tags, highlighting how they 
-will contribute to the video's overall performance on YouTube."""
+- Relevance to the video title and content
+- Potential search volume on YouTube Shorts
+- Engagement potential (views, likes, comments)
+- Current trends on YouTube Shorts
+- Alignment with YouTube's recommendation algorithm for Shorts
+
+Ensure all tags are separated by commas. Provide a brief explanation of your strategy for selecting these hashtags and tags, highlighting how they will contribute to the video's overall performance on YouTube Shorts."""
 
         response = await client.chat.completions.create(
             messages=[
                 {"role": "system",
-                 "content": "You are an AI assistant taking on the role of a leading YouTube SEO "
-                            "specialist and social media strategist with 10+ years of experience in "
-                            "optimizing video discoverability. Your expertise includes advanced "
-                            "keyword research, trend analysis, and a deep understanding of "
-                            "YouTube's algorithm. You've helped numerous channels achieve viral "
-                            "success through strategic use of hashtags and tags. Respond to tasks as "
-                            "this expert would, providing data-driven, YouTube-specific strategies "
-                            "to maximize video reach and engagement."},
+                 "content": "You are an AI assistant taking on the role of a leading YouTube SEO specialist and social media strategist with over 10 years of experience in optimizing video discoverability. Your expertise includes advanced keyword research, trend analysis, and a deep understanding of YouTube's algorithm, particularly for Shorts. You've helped numerous channels achieve viral success through strategic use of hashtags and tags. Respond to tasks as this expert would, providing data-driven, YouTube Shorts-specific strategies to maximize video reach and engagement."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -686,29 +646,31 @@ will contribute to the video's overall performance on YouTube."""
 
 class VideoScriptGenerationAgent(Agent):
     def __init__(self):
-        super().__init__("Video Script Generation Agent", "gemma2-9b-it")
+        super().__init__("Video Script Generation Agent", "llama-3.1-70b-versatile")
 
     async def execute(self, input_data: Dict[str, Any]) -> Any:
         research_result = input_data.get('research', '')
-        video_length = input_data.get('video_length', 60)  # Default to 60 seconds if not specified
+        video_length = input_data.get('video_length', 180)  # Default to 180 seconds if not specified
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""As a YouTube content creator, craft a detailed, engaging and entralling script for a 
-{video_length}-second vertical video based on the following information:
+        prompt = f"""As a YouTube content creator specializing in faceless YouTube Shorts, craft a detailed, engaging, and enthralling script for a {video_length}-second vertical video based on the following information:
 
 {research_result}
 
 Your script should include:
-1. An attention-grabbing opening hook that sets the tone for the video
-2. Key points from the research
-3. A strong call-to-action conclusion
 
-Format the script with clear timestamps to fit within {video_length} seconds. 
-Optimize for viewer retention and engagement."""
+1. An attention-grabbing opening hook that immediately captivates viewers
+2. Key points from the research presented in a concise and engaging manner
+3. A strong call-to-action conclusion to encourage viewer interaction (e.g., like, share, subscribe)
+
+Ensure that the script is suitable for a faceless video, relying on voiceover narration and visual storytelling elements.
+
+Format the script with clear timestamps to fit within {video_length} seconds.
+
+Optimize for viewer retention and engagement, keeping in mind the fast-paced nature of YouTube Shorts."""
 
         stream = await client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "You are an AI assistant taking on the role of a leading YouTube SEO "
-                                              "specialist and content creator with a deep understanding of audience engagement."},
+                {"role": "system", "content": "You are an AI assistant taking on the role of a leading YouTube content creator and SEO specialist with a deep understanding of audience engagement, particularly in creating faceless YouTube Shorts. Your expertise lies in crafting scripts that captivate viewers and sustain their attention throughout the video. Respond to tasks as this expert would, producing content optimized for virality and engagement in short-form vertical videos."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -720,26 +682,6 @@ Optimize for viewer retention and engagement."""
         async for chunk in stream:
             response += chunk.choices[0].delta.content or ""
         return response
-
-
-    async def download_with_retry(url: str, directory: str, filename: str, headers: Dict[str, str] = None,
-                                max_retries: int = 3) -> str:
-        """Downloads a file with retries."""
-        for attempt in range(max_retries):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers) as response:
-                        if response.status == 200:
-                            file_path = os.path.join(directory, filename)
-                            async with aiofiles.open(file_path, 'wb') as f:
-                                await f.write(await response.read())
-                            return file_path
-                        else:
-                            logger.warning(f"Download attempt {attempt + 1} failed: HTTP {response.status}")
-            except Exception as e:
-                logger.warning(f"Download attempt {attempt + 1} failed: {str(e)}")
-        return None
-
 
 class StoryboardGenerationAgent(Agent):
     def __init__(self):
@@ -754,40 +696,40 @@ class StoryboardGenerationAgent(Agent):
             return []
 
         client = AsyncGroq(api_key=groq_api_key)
-        prompt = f"""Create a storyboard for a YouTube Short based on the following script:
+        prompt = f"""Create a storyboard for a three minute faceless YouTube Shorts video based on the following script:
 
 {script}
 
 For each major scene (aim for 15-20 scenes), provide:
-1. Visual: A brief description of the visual elements (1 sentence). Ensure each scene has unique 
-visual elements.
-2. Text: The exact text/dialogue for voiceover and subtitles all in lowercase and minimal puncutaton only when it is absolutley necessary.
-3. Video Keyword: A suitable keyword for searching stock video footage. Be specific and avoid 
-repeating keywords.
-4. Image Keyword: A backup keyword for searching a stock image. Be specific and avoid repeating 
-keywords.
 
-Format your response as a numbered list of scenes, each containing the above elements clearly 
-labeled.
+1. Visual: A brief description of the visual elements (1 sentence). Ensure each scene has unique and engaging visuals suitable for a faceless video.
+
+2. Text: The exact text/dialogue for voiceover and subtitles, written in lowercase with minimal punctuation, only when absolutely necessary.
+
+3. Video Keyword: A specific keyword or phrase for searching stock video footage. Be precise and avoid repeating keywords across scenes.
+
+4. Image Keyword: A backup keyword for searching stock images. Be specific and avoid repeating keywords.
+
+Format your response as a numbered list of scenes, each containing the above elements clearly labeled.
 
 Example:
-1. Visual: A person looking confused at a complex math equation on a chalkboard
-   Text: have you ever felt overwhelmed by math
-   Video Keyword: student struggling with math
-   Image Keyword: confused face mathematics
+
+1. Visual: A time-lapse of clouds moving rapidly over a city skyline
+
+   Text: time flies when we're lost in the hustle
+
+   Video Keyword: time-lapse city skyline
+
+   Image Keyword: fast-moving clouds over city
 
 2. Visual: ...
-   Text: ...
-   Video Keyword: ...
-   Image Keyword: ...
 
 Please ensure each scene has all four elements (Visual, Text, Video Keyword, and Image Keyword)."""
 
         stream = await client.chat.completions.create(
             messages=[
                 {"role": "system",
-                 "content": "You are an AI assistant specializing in creating viral storyboards "
-                            "for YouTube Shorts using the provided script."},
+                 "content": "You are an AI assistant specializing in creating engaging and viral storyboards for faceless YouTube Shorts videos using the provided script."},
                 {"role": "user", "content": prompt}
             ],
             model=self.model,
@@ -1144,7 +1086,7 @@ def clean_text_for_tts(text: str) -> str:
     text = ' '.join(text.split())
     return text
 
-def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
+def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str, config_override: Dict[str, Any] = None) -> bool:
     """Generates per-scene voiceover from scene narrations using F5-TTS."""
     if not scenes:
         logging.error("No scenes provided for voiceover generation.")
@@ -1156,73 +1098,91 @@ def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
     audio_segments = []
 
     try:
+        # Setup paths
         f5_tts_dir = os.path.join(os.getcwd(), "F5-TTS")
-        inference_cli_path = os.path.join(f5_tts_dir, "inference-cli.py")
-        ref_audio = os.path.join(f5_tts_dir, "tests", "ref_audio", "mike.wav")
-        ref_text = ""
-        config_path = os.path.join(f5_tts_dir, "inference-cli.toml")
-        data_dir = os.path.join(f5_tts_dir, "data")
+        ref_audio = os.path.join(f5_tts_dir, "src", "f5_tts", "infer", "examples", "basic", "<your wav file here>")
+        
+        # Create base config with all required fields
+        default_config = {
+            "model": "F5-TTS",
+            "ref_audio": ref_audio,
+            "ref_text": "",  
+            "gen_text": "",  
+            "gen_file": "", 
+            "remove_silence": False,
+            "vocoder_name": "vocos",
+            "load_vocoder_from_local": False,
+            "output_dir": "",  # Will be updated per scene
+            "device": "cuda" if torch.cuda.is_available() else "cpu"
+        }
 
-        # Check and setup vocab file
-        vocab_file = os.path.join(data_dir, "Emilia_ZH_EN_pinyin", "vocab.txt")
-        if not os.path.exists(vocab_file):
-            logging.warning(f"Vocab file not found at {vocab_file}")
-            for root, dirs, files in os.walk(f5_tts_dir):
-                if "vocab.txt" in files:
-                    found_vocab = os.path.join(root, "vocab.txt")
-                    logging.info(f"Found vocab file at {found_vocab}")
-                    os.makedirs(os.path.dirname(vocab_file), exist_ok=True)
-                    os.symlink(found_vocab, vocab_file)
-                    logging.info(f"Created symlink to vocab file at {vocab_file}")
-                    break
-            else:
-                logging.error("Could not find vocab.txt file in F5-TTS directory")
-                return False
+        # Update config with any overrides
+        if config_override:
+            default_config.update(config_override)
 
+        # Process each scene
         for i, scene in enumerate(scenes):
             text = scene.get('narration_text', '').strip()
             if not text or text.lower() == 'none':
                 continue
 
-            # Create a separate temp directory for each scene
+            # Create scene-specific temp directory
             scene_temp_dir = os.path.join(temp_dir, f"scene_{i}")
             os.makedirs(scene_temp_dir, exist_ok=True)
-            
-            # F5-TTS always outputs as 'out.wav' in the specified directory
-            temp_output_path = os.path.join(scene_temp_dir, "out.wav")
-            final_scene_path = os.path.join(temp_dir, f"scene_{i}.mp3")
-            
-            logging.info(f"Generating voiceover for scene {i}")
 
+            # Create scene-specific config file
+            temp_config_path = os.path.join(temp_dir, f"config_scene_{i}.toml")
+            
+            # Update config for this scene
+            scene_config = default_config.copy()
+            scene_config.update({
+                "gen_text": text,
+                "output_dir": scene_temp_dir
+            })
+
+            # Write scene-specific TOML config
+            with open(temp_config_path, 'w') as f:
+                toml.dump(scene_config, f)
+
+            logging.info(f"Generating voiceover for scene {i}")
+            
+            # Change to F5-TTS directory before running the command
+            original_dir = os.getcwd()
+            os.chdir(f5_tts_dir)
+            
+            # Update command to run from src directory
             command = [
-                "python", inference_cli_path,
-                "--config", config_path,
-                "--model", "F5-TTS",
-                "--ref_audio", ref_audio,
-                "--ref_text", ref_text,
-                "--gen_text", text,
-                "--output", scene_temp_dir,
-                "--vocab_file", vocab_file
+                "python", 
+                "-m", "f5_tts.infer.infer_cli",
+                "--config", temp_config_path
             ]
 
             try:
                 logging.info(f"Running F5-TTS command: {' '.join(command)}")
+                logging.debug(f"Config contents: {scene_config}")
                 result = subprocess.run(command, check=True, capture_output=True, text=True)
                 logging.info("Voice generation successful")
                 logging.debug(f"F5-TTS output: {result.stdout}")
 
-                if os.path.exists(temp_output_path):
+                # F5-TTS output path pattern
+                output_pattern = os.path.join(scene_temp_dir, "*.wav")
+                output_files = glob.glob(output_pattern)
+                
+                if output_files:
+                    temp_output_path = output_files[0]
+                    final_scene_path = os.path.join(temp_dir, f"scene_{i}.mp3")
+                    
                     # Convert WAV to MP3
                     audio = AudioSegment.from_wav(temp_output_path)
                     audio.export(final_scene_path, format="mp3")
                     
-                    duration = len(audio) / 1000.0  # Convert milliseconds to seconds
+                    duration = len(audio) / 1000.0
                     scene['audio_file'] = final_scene_path
                     scene['audio_duration'] = duration
                     audio_segments.append(audio)
                     logging.info(f"Scene {i}: Audio duration = {duration}s")
                 else:
-                    logging.error(f"Generated audio file not found at {temp_output_path}")
+                    logging.error(f"No generated audio files found in {scene_temp_dir}")
                     return False
 
             except subprocess.CalledProcessError as e:
@@ -1233,6 +1193,8 @@ def generate_voiceover(scenes: List[Dict[str, Any]], output_file: str) -> bool:
                 logging.exception(f"Unexpected error during voice generation for scene {i}: {e}")
                 return False
             finally:
+                # Restore original directory
+                os.chdir(original_dir)
                 # Clean up scene-specific temp directory
                 if os.path.exists(scene_temp_dir):
                     shutil.rmtree(scene_temp_dir)
@@ -1263,11 +1225,15 @@ def generate_subtitles(scenes: List[Dict[str, Any]], output_file: str, audio_fil
         EXCLUDED_TEXTS = [
             'none',
             'no narration',
+            '[no voiceover]',
             'no voiceover',
+            'no voiceover or subtitles',
             'no subtitles',
+            'in a voiceover',
             'just music',
             'no specific text for this scene',
             'no text',
+            'no voice',
             'n/a',
             'none.',
             'none,',
@@ -1404,7 +1370,7 @@ def get_audio_duration(audio_file: str) -> float:
         return 0.0
     
    
-    
+
 # Streamlit app
 def main():
     st.set_page_config(page_title="YouTube Shorts Generator", page_icon="🎥", layout="wide")
@@ -1415,11 +1381,14 @@ def main():
     time_frame = st.text_input("Enter the time frame for recent events (e.g., 'past week', '30d', '1y'):")
     video_length = st.number_input("Enter the desired video length in seconds:")
 
+    # Add an optional text area for user-provided script
+    user_script = st.text_area("Provide your own script (optional):")
+
     if st.button("Generate YouTube Shorts"):
-        if topic and time_frame:
+        if (topic and time_frame) or (user_script and user_script.strip()):
             with st.spinner("Generating YouTube Shorts ... This will take at least 3-5 minutes"):
                 try:
-                    results = asyncio.run(youtube_shorts_workflow(topic, time_frame, video_length))
+                    results = asyncio.run(youtube_shorts_workflow(topic, time_frame, video_length, user_script))
                     if "Error" in results:
                         st.error(f"An error occurred: {results['Error']}")
                     else:
@@ -1428,7 +1397,7 @@ def main():
                     st.error(f"An unexpected error occurred: {str(e)}")
                     logger.exception("Unexpected error in YouTube Shorts generation")
         else:
-            st.warning("Please enter both topic and time frame.")
+            st.warning("Please enter both topic and time frame, or provide your own script.")
 
 def display_results(results):
     st.subheader("Generation Results")
@@ -1455,7 +1424,7 @@ def display_results(results):
         else:
             st.error("Failed to compile YouTube Short")
             
-async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int) -> Dict[str, Any]:
+async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int, user_script: str = None) -> Dict[str, Any]:
     # Create graph instance
     graph = Graph()  # Create an instance of the Graph class
     video_length = video_length * 1000  # Convert to milliseconds
@@ -1503,15 +1472,21 @@ async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int
     input_data = {"topic": topic, "time_frame": time_frame}
     results = {}
     
-    # Step 1: Recent Events Research Agent
-    input_data = {"topic": topic, "time_frame": time_frame}
-    try:
-        research_result = await recent_events_node.process(input_data)
-        results[recent_events_node.agent.name] = research_result
-    except Exception as e:
-        logger.error(f"Error in RecentEventsResearchAgent: {str(e)}")
-        results["Error"] = f"RecentEventsResearchAgent failed: {str(e)}"
-        return results
+    if user_script and user_script.strip():
+        # Skip RecentEventsResearchAgent and use the provided script as research_result
+        research_result = user_script.strip()
+        results["User Script Provided"] = user_script
+        logger.info("User provided a script. Skipping RecentEventsResearchAgent.")
+    else:
+        # Step 1: Recent Events Research Agent
+        input_data = {"topic": topic, "time_frame": time_frame}
+        try:
+            research_result = await recent_events_node.process(input_data)
+            results[recent_events_node.agent.name] = research_result
+        except Exception as e:
+            logger.error(f"Error in RecentEventsResearchAgent: {str(e)}")
+            results["Error"] = f"RecentEventsResearchAgent failed: {str(e)}"
+            return results
 
     # Step 2: Title Generation Agent
     try:
@@ -1554,14 +1529,19 @@ async def youtube_shorts_workflow(topic: str, time_frame: str, video_length: int
         return results
 
     # Step 6: Video Script Generation Agent
-    try:
-        script_gen_input = {"research": research_result}
-        script_gen_result = await script_gen_node.process(script_gen_input)
-        results[script_gen_node.agent.name] = script_gen_result
-    except Exception as e:
-        logger.error(f"Error in VideoScriptGenerationAgent: {str(e)}")
-        results["Error"] = f"VideoScriptGenerationAgent failed: {str(e)}"
-        return results
+    if user_script and user_script.strip():
+        script_gen_result = user_script.strip()
+        results[script_gen_node.agent.name] = "User provided script."
+        logger.info("Using user-provided script.")
+    else:
+        try:
+            script_gen_input = {"research": research_result}
+            script_gen_result = await script_gen_node.process(script_gen_input)
+            results[script_gen_node.agent.name] = script_gen_result
+        except Exception as e:
+            logger.error(f"Error in VideoScriptGenerationAgent: {str(e)}")
+            results["Error"] = f"VideoScriptGenerationAgent failed: {str(e)}"
+            return results
 
     # Step 7: Storyboard Generation Agent
     logger.info("Executing Storyboard Generation Agent")
