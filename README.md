@@ -119,7 +119,7 @@ pip install -r requirements.txt
 cd ..
 ```
 
-### Subtitle Command(Has to be ran bewfore you run the application just one command)
+### Subtitle Command(Has to be ran before you run the application just one command)
 ```bash
 docker run -d -p 8765:8765 lowerquality/gentle
 ```
